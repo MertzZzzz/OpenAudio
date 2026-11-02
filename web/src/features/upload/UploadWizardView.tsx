@@ -12,7 +12,7 @@ import { Skeleton } from '@/shared/ui/Skeleton';
 import { useToast } from '@/shared/ui/Toast';
 import { cn } from '@/shared/lib/cn';
 import { compare } from '@/shared/lib/semver';
-import { useCurrentPublisherSlug } from '@/features/publisher/currentPublisher';
+import { can, type PublisherContext } from '@/features/publisher/currentPublisher';
 import { usePublisherPackages } from '@/features/publisher/api';
 import { buildManifest } from './buildManifest';
 import { defaultValues, STEP_FIELDS, wizardSchema, type WizardValues } from './schema';
@@ -35,8 +35,9 @@ function bumpMinor(v: string): string {
   return `${a}.${b + 1}.0`;
 }
 
-export function UploadWizardView() {
-  const publisher = useCurrentPublisherSlug();
+export function UploadWizardView({ ctx }: { ctx: PublisherContext }) {
+  const publisher = ctx.publisher.slug;
+  const canPublish = can(ctx.publisher.role, 'publish');
   const packagesQ = usePublisherPackages(publisher);
   const [sp] = useSearchParams();
   const navigate = useNavigate();
@@ -60,12 +61,14 @@ export function UploadWizardView() {
     const p = packages.find((x) => x.slug === slug);
     if (!p) return;
     const latest = [...p.releases.map((r) => r.version), p.latestVersion].sort(compare).pop() ?? '0.0.0';
+    const base = { ...form.getValues(), packageSlug: slug, kind: p.kind, version: latest === '0.0.0' ? '1.0.0' : bumpMinor(latest), description: p.description };
+    // Packages without a published release carry no metadata yet: keep the wizard defaults.
+    if (p.latestVersion === '0.0.0' || !p.license.content) {
+      form.reset({ ...defaultValues, ...base });
+      return;
+    }
     form.reset({
-      ...form.getValues(),
-      packageSlug: slug,
-      kind: p.kind,
-      version: latest === '0.0.0' ? '1.0.0' : bumpMinor(latest),
-      description: p.description,
+      ...base,
       license: (['CC0-1.0', 'CC-BY-4.0', 'CC-BY-SA-4.0', 'CC-BY-NC-4.0', 'MIT', 'Apache-2.0', 'GPL-3.0-or-later'] as const).find((l) => l === p.license.content) ?? 'CC-BY-4.0',
       commercialUse: p.license.commercialUse,
       attributionRequired: p.license.attributionRequired,
@@ -96,7 +99,7 @@ export function UploadWizardView() {
   }, [packages.length]);
 
   const validate = useMutation({
-    mutationFn: () => api.validateManifest(manifest),
+    mutationFn: () => api.validateManifest(manifest, { publisher, slug: values.packageSlug }),
     onSuccess: setIssues,
   });
 
@@ -202,9 +205,13 @@ export function UploadWizardView() {
                 <Button variant="secondary" leftIcon={<Save className="h-4 w-4" />} loading={submit.isPending && submit.variables === false} onClick={() => submit.mutate(false)}>
                   Save draft
                 </Button>
-                <Button leftIcon={<Rocket className="h-4 w-4" />} loading={submit.isPending && submit.variables === true} onClick={() => submit.mutate(true)}>
-                  Publish release
-                </Button>
+                {canPublish ? (
+                  <Button leftIcon={<Rocket className="h-4 w-4" />} loading={submit.isPending && submit.variables === true} onClick={() => submit.mutate(true)}>
+                    Publish release
+                  </Button>
+                ) : (
+                  <span className="self-center text-caption text-fg-subtle">Uploaders save drafts; a maintainer publishes.</span>
+                )}
               </div>
             )}
           </div>

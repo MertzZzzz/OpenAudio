@@ -6,6 +6,8 @@ import type {
   PackageKind,
   Page,
   PublisherMember,
+  PublisherMembership,
+  UploadProgress,
   Release,
   ResolveResult,
   Sample,
@@ -55,12 +57,20 @@ export interface ApiClient {
   searchSamples(query: SampleQuery): Promise<Sample[]>;
   taxonomy(): Promise<TaxonomyTerm[]>;
 
+  myPublishers(): Promise<PublisherMembership[]>;
+  createPublisher(slug: string, name: string): Promise<PublisherMembership>;
   publisherPackages(publisher: string): Promise<(Package & { releases: Release[] })[]>;
   publisherMembers(publisher: string): Promise<PublisherMember[]>;
   inviteMember(publisher: string, email: string, role: PublisherMember['role']): Promise<PublisherMember>;
   removeMember(publisher: string, userId: string): Promise<void>;
   createPackage(publisher: string, input: CreatePackageInput): Promise<Package>;
-  validateManifest(manifest: Record<string, unknown>): Promise<ValidationIssue[]>;
+  /** Validates a manifest; with a target it is normalized against that package first (as the server would). */
+  validateManifest(manifest: Record<string, unknown>, target?: { publisher: string; slug: string }): Promise<ValidationIssue[]>;
+  /**
+   * Uploads one content-addressed blob (resumable multipart). Resolves when the server has
+   * verified the SHA-256. Blobs that already exist are skipped (`onProgress` jumps to done).
+   */
+  uploadBlob(file: Blob, opts: { digest: string; contentType: string; onProgress?: (p: UploadProgress) => void }): Promise<void>;
   createDraftRelease(input: DraftReleaseInput): Promise<Release>;
   publishRelease(publisher: string, slug: string, version: string): Promise<Release>;
   yankRelease(publisher: string, slug: string, version: string): Promise<Release>;

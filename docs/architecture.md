@@ -54,6 +54,8 @@ EmptyState, PackageCover, Waveform.
 
 ## Authentication
 
-Real authentication runs against the Go API (`VITE_AUTH_MODE=http`, set by docker compose); without a backend the
-web app uses an in-memory mock with the same `AuthApi` interface (`features/auth/authApi.ts`). The catalog is still
-mocked until Phase 4/5. See [auth.md](auth.md).
+With `VITE_API_MODE=http` (set by docker compose) the web app talks to the Go API through
+`shared/api/httpClient.ts` and `features/auth/authApi.ts`; without it everything runs on in-memory mocks with the
+same interfaces. Interim gaps of the HTTP mode until the next phases: search filters/facets are computed client-side
+over the 100 newest packages (Phase 5), and the library lives in `localStorage` (Phase 6).
+See [auth.md](auth.md) and [publishing.md](publishing.md).

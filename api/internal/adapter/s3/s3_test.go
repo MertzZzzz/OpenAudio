@@ -40,6 +40,14 @@ func TestPresignIsOffline(t *testing.T) {
 	assert.Contains(t, u, "kick.wav")
 }
 
+func TestPresignUsesPublicEndpoint(t *testing.T) {
+	s, err := New(Config{Endpoint: "http://minio:9000", PublicEndpoint: "https://cdn.example.com", AccessKey: "ak", SecretKey: "sk", Bucket: "blobs-test", Region: "us-east-1"})
+	require.NoError(t, err)
+	u, err := s.PresignGet(context.Background(), "blobs/abc", time.Minute, "")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(u, "https://cdn.example.com/blobs-test/blobs/abc?"), u)
+}
+
 func TestEnsureBucketAndPingAgainstFakeS3(t *testing.T) {
 	backend := s3mem.New()
 	srv := httptest.NewServer(gofakes3.New(backend).Server())

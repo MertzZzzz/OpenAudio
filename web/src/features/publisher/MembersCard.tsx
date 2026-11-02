@@ -21,7 +21,7 @@ type InviteValues = z.infer<typeof inviteSchema>;
 
 const roleTone: Record<PublisherMember['role'], 'primary' | 'accent' | 'neutral'> = { owner: 'primary', maintainer: 'accent', uploader: 'neutral' };
 
-export function MembersCard({ publisher }: { publisher: string }) {
+export function MembersCard({ publisher, canManage = true }: { publisher: string; canManage?: boolean }) {
   const members = usePublisherMembers(publisher);
   const invite = useInviteMember(publisher);
   const remove = useRemoveMember(publisher);
@@ -39,9 +39,11 @@ export function MembersCard({ publisher }: { publisher: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Members</CardTitle>
-        <Button size="sm" variant="secondary" leftIcon={<UserPlus className="h-4 w-4" />} onClick={() => setOpen(true)}>
-          Invite
-        </Button>
+        {canManage && (
+          <Button size="sm" variant="secondary" leftIcon={<UserPlus className="h-4 w-4" />} onClick={() => setOpen(true)}>
+            Add member
+          </Button>
+        )}
       </CardHeader>
       <CardBody className="p-0">
         {members.isLoading ? (
@@ -59,7 +61,7 @@ export function MembersCard({ publisher }: { publisher: string }) {
                   <p className="truncate text-caption text-fg-subtle">{m.email}</p>
                 </div>
                 <Badge tone={roleTone[m.role]}>{m.role}</Badge>
-                {m.role !== 'owner' && (
+                {m.role !== 'owner' && canManage && (
                   <button type="button" aria-label={`Remove ${m.name}`} onClick={() => setConfirm(m)} className="rounded p-1.5 text-fg-subtle hover:bg-danger/10 hover:text-danger">
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -73,11 +75,12 @@ export function MembersCard({ publisher }: { publisher: string }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Invite member"
+        title="Add member"
+        description="They need an OpenAudio account with this email."
         footer={
           <>
             <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" form="invite-member" loading={invite.isPending}>Send invite</Button>
+            <Button type="submit" form="invite-member" loading={invite.isPending}>Add member</Button>
           </>
         }
       >

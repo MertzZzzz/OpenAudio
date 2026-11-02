@@ -13,7 +13,7 @@ import { PackageCover } from '@/shared/ui/PackageCover';
 import { KIND_META } from '@/shared/lib/kinds';
 import { formatCount, formatDate, shortDigest } from '@/shared/lib/format';
 import { cn } from '@/shared/lib/cn';
-import { useCurrentPublisherSlug } from '@/features/publisher/currentPublisher';
+import { can, PublisherSwitcher, type PublisherContext } from '@/features/publisher/currentPublisher';
 import { packageHref } from '@/features/catalog/PackageCard';
 import { usePublisherPackages, useReleaseAction } from './api';
 import { CreatePackageModal } from './CreatePackageModal';
@@ -33,8 +33,9 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
   );
 }
 
-export function PublisherDashboardView() {
-  const publisher = useCurrentPublisherSlug();
+export function PublisherDashboardView({ ctx }: { ctx: PublisherContext }) {
+  const publisher = ctx.publisher.slug;
+  const role = ctx.publisher.role;
   const pkgs = usePublisherPackages(publisher);
   const action = useReleaseAction(publisher);
   const [createOpen, setCreateOpen] = useState(false);
@@ -50,13 +51,18 @@ export function PublisherDashboardView() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-caption text-fg-subtle">Publisher</p>
+          <p className="text-caption text-fg-subtle">
+            {ctx.publisher.name} · your role: <span className="font-medium text-fg-muted">{role}</span>
+          </p>
           <h1 className="text-display">@{publisher}</h1>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
-            New package
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <PublisherSwitcher ctx={ctx} />
+          {can(role, 'packages') && (
+            <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
+              New package
+            </Button>
+          )}
           <ButtonLink to="/publisher/upload" leftIcon={<Upload className="h-4 w-4" />}>Upload release</ButtonLink>
         </div>
       </div>
@@ -80,10 +86,11 @@ export function PublisherDashboardView() {
                 <span className="font-medium">{p.name}</span>
                 <span className="font-mono text-caption text-fg-muted">v{r.version}</span>
                 <span className="flex-1 truncate text-caption text-fg-subtle">{r.changelog}</span>
-                <Badge tone="success">validation passed</Badge>
-                <Button size="sm" leftIcon={<Rocket className="h-4 w-4" />} loading={action.isPending && action.variables?.version === r.version} onClick={() => action.mutate({ slug: p.slug, version: r.version, action: 'publish' })}>
-                  Publish
-                </Button>
+                {can(role, 'publish') && (
+                  <Button size="sm" leftIcon={<Rocket className="h-4 w-4" />} loading={action.isPending && action.variables?.version === r.version} onClick={() => action.mutate({ slug: p.slug, version: r.version, action: 'publish' })}>
+                    Publish
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -96,7 +103,12 @@ export function PublisherDashboardView() {
           {pkgs.isLoading ? (
             <Skeleton className="h-80" />
           ) : data.length === 0 ? (
-            <EmptyState icon={<PackageIcon className="h-6 w-6" />} title="No packages yet" description="Create your first package, then upload a release." action={<Button onClick={() => setCreateOpen(true)}>New package</Button>} />
+            <EmptyState
+              icon={<PackageIcon className="h-6 w-6" />}
+              title="No packages yet"
+              description="Create your first package, then upload a release."
+              action={can(role, 'packages') ? <Button onClick={() => setCreateOpen(true)}>New package</Button> : undefined}
+            />
           ) : (
             <Table>
               <THead>
@@ -155,10 +167,10 @@ export function PublisherDashboardView() {
                                   <span className="text-caption text-fg-subtle">{r.publishedAt ? formatDate(r.publishedAt) : 'not published'}</span>
                                   <span className="font-mono text-caption text-fg-subtle" title={r.manifestDigest}>{shortDigest(r.manifestDigest)}</span>
                                   <span className="ml-auto flex gap-2">
-                                    {r.status === 'draft' && (
+                                    {r.status === 'draft' && can(role, 'publish') && (
                                       <Button size="sm" onClick={() => action.mutate({ slug: p.slug, version: r.version, action: 'publish' })}>Publish</Button>
                                     )}
-                                    {r.status === 'published' && (
+                                    {r.status === 'published' && can(role, 'publish') && (
                                       <Button size="sm" variant="danger" onClick={() => setConfirmYank({ slug: p.slug, release: r })}>Yank</Button>
                                     )}
                                   </span>
@@ -177,7 +189,7 @@ export function PublisherDashboardView() {
           )}
         </section>
 
-        <MembersCard publisher={publisher} />
+        <MembersCard publisher={publisher} canManage={can(role, 'members')} />
       </div>
 
       <CreatePackageModal publisher={publisher} open={createOpen} onClose={() => setCreateOpen(false)} />

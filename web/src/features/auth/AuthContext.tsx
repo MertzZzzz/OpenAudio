@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { setSessionExpiredHandler } from '@/shared/api/http';
 import { httpAuthApi, type AuthApi } from './authApi';
 import { createMockAuthApi } from './mockAuthApi';
+import { apiMode } from '@/shared/lib/apiMode';
 import type { AuthUser, OAuthProviderId, RegisterInput } from './types';
 
 type Status = 'loading' | 'authenticated' | 'anonymous';
@@ -22,9 +23,9 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** `VITE_AUTH_MODE=http` talks to the Go API; anything else uses the in-memory mock. */
+/** `VITE_API_MODE=http` talks to the Go API; anything else uses the in-memory mock. */
 export function defaultAuthApi(): AuthApi {
-  return import.meta.env.VITE_AUTH_MODE === 'http' ? httpAuthApi : createMockAuthApi({ latencyMs: import.meta.env.MODE === 'test' ? 0 : 200 });
+  return apiMode === 'http' ? httpAuthApi : createMockAuthApi({ latencyMs: import.meta.env.MODE === 'test' ? 0 : 200 });
 }
 
 export function AuthProvider({ children, api }: { children: ReactNode; api?: AuthApi }) {

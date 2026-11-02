@@ -7,6 +7,10 @@ cmd/api/main.go              config + DI only
 internal/
 ├── domain/                  entities, repository interfaces, typed errors
 ├── usecase/auth/            sign-up/in, OAuth linking, sessions, email verification, password reset, roles
+├── usecase/publishing/      publishers, members, packages, drafts, publish, yank
+├── usecase/uploads/         resumable content-addressed uploads with server-side SHA-256 verification
+├── manifest/                openaudio.package/v1 JSON Schema, domain rules, canonical digest
+├── semver/                  versions and ranges
 ├── adapter/
 │   ├── http/                router, middleware (auth, roles, CORS, rate limit), handlers, OAuth state cookie
 │   ├── postgres/            repositories + embedded migrations runner
@@ -16,7 +20,7 @@ internal/
 │   └── memory/              in-memory repositories for tests
 ├── config/                  environment variables
 └── platform/                logger, security (Argon2id, JWT, opaque tokens)
-migrations/                  SQL (users & auth, catalog with immutable releases, library)
+migrations/                  SQL (users & auth, catalog with immutable releases, library, uploads)
 ```
 
 ## Run
@@ -40,6 +44,8 @@ The integration tests wipe and re-migrate the test database.
 
 ## Notes
 
-- SQL is hand-written with pgx (no sqlc yet) — the auth repositories are small; sqlc can come with the catalog in Phase 4.
+- SQL is hand-written with pgx (no sqlc). Queries live next to their repository in `internal/adapter/postgres`.
 - `users.password_hash` is nullable (the spec has it `NOT NULL`) so Google/Discord-only accounts are possible.
 - Published releases are immutable at the database level (trigger), not only in application code.
+- Release manifests are stored twice in PostgreSQL: exact canonical bytes (`manifest_canonical`, hashed into
+  `manifest_digest`) and JSONB for querying. JSONB re-formats JSON, so it is never used to serve or hash manifests.

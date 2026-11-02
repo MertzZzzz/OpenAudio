@@ -4,6 +4,7 @@ import { CheckCircle2, FileAudio, Loader2, Trash2, UploadCloud } from 'lucide-re
 import { Button } from '@/shared/ui/Button';
 import { formatBytes, shortDigest } from '@/shared/lib/format';
 import { cn } from '@/shared/lib/cn';
+import { api } from '@/shared/api';
 import { sha256File } from './hash';
 import type { WizardValues } from './schema';
 
@@ -20,13 +21,14 @@ function guessType(name: string, type: string): string {
 }
 
 /**
- * Files are hashed client-side (SHA-256) — the digest becomes the blob key
- * `blobs/{sha256}`. Upload progress is simulated until the multipart API exists.
+ * Files are hashed client-side (SHA-256) and uploaded in resumable parts; the server re-hashes
+ * the assembled blob and stores it at `blobs/{sha256}`. Already-stored content is skipped.
  */
 export function StepFiles() {
   const { formState, getValues, setValue, trigger, watch } = useFormContext<WizardValues>();
   const fields = watch('files');
   const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const patch = useCallback(
@@ -48,20 +50,23 @@ export function StepFiles() {
         const id = `${path}:${file.size}:${Math.random().toString(36).slice(2, 8)}`;
         existing.add(path);
         setValue('files', [...getValues('files'), { id, path, size: file.size, contentType: guessType(file.name, file.type), digest: null, status: 'hashing', progress: 0 }], { shouldDirty: true });
+        const contentType = guessType(file.name, file.type);
         void sha256File(file)
-          .then((digest) => {
-            patch(id, { digest, status: 'uploading', progress: 0.05 });
-            let progress = 0.05;
-            const t = window.setInterval(() => {
-              progress = Math.min(1, progress + 0.15 + Math.random() * 0.2);
-              patch(id, { progress, status: progress >= 1 ? 'done' : 'uploading' });
-              if (progress >= 1) {
-                window.clearInterval(t);
-                void trigger('files');
-              }
-            }, 180);
+          .then(async (digest) => {
+            patch(id, { digest, status: 'uploading', progress: 0 });
+            await api.uploadBlob(file, {
+              digest,
+              contentType,
+              onProgress: ({ fraction, phase }) =>
+                patch(id, { progress: phase === 'done' ? 1 : Math.min(0.99, fraction), status: phase === 'done' ? 'done' : 'uploading' }),
+            });
+            patch(id, { status: 'done', progress: 1 });
+            void trigger('files');
           })
-          .catch(() => patch(id, { status: 'error' }));
+          .catch((e: unknown) => {
+            patch(id, { status: 'error' });
+            setUploadError(e instanceof Error ? e.message : 'Upload failed');
+          });
       }
     },
     [getValues, setValue, patch, trigger],
@@ -109,6 +114,7 @@ export function StepFiles() {
       </div>
 
       {error && <p className="text-caption text-danger" role="alert">{error}</p>}
+      {uploadError && <p className="text-caption text-danger" role="alert">Upload failed: {uploadError}</p>}
 
       {fields.length > 0 && (
         <div className="rounded-lg border border-border">

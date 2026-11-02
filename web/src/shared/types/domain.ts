@@ -284,3 +284,15 @@ export interface ValidationIssue {
   path: string;
   message: string;
 }
+
+export interface PublisherMembership {
+  slug: string;
+  name: string;
+  role: PublisherMember['role'];
+}
+
+export interface UploadProgress {
+  /** 0..1 */
+  fraction: number;
+  phase: 'uploading' | 'verifying' | 'done';
+}

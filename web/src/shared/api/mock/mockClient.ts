@@ -1,17 +1,9 @@
 import type { ApiClient } from '@/shared/api/client';
 import { ApiError } from '@/shared/api/client';
-import type {
-  FacetBucket,
-  KeyMode,
-  KeyTonic,
-  Library,
-  Package,
-  Release,
-  SearchFacets,
-  SearchParams,
-} from '@/shared/types/domain';
+import type { Library, Package, Release } from '@/shared/types/domain';
+import { buildFacets, searchPage } from '@/shared/api/catalogQuery';
 import { compare } from '@/shared/lib/semver';
-import { formatKey, humanize, keyToSlug } from '@/shared/lib/format';
+import { keyToSlug } from '@/shared/lib/format';
 import { validateManifest } from '@/shared/lib/manifest';
 import {
   artifactsFor,
@@ -23,7 +15,7 @@ import {
   releases as seedReleases,
   samples,
 } from './data';
-import { expandWithChildren, resolveAlias, taxonomyTerms, termLabel } from './taxonomy';
+import { expandWithChildren, taxonomyTerms } from './taxonomy';
 import { resolve } from './resolver';
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -31,8 +23,6 @@ const clone = <T>(v: T): T => structuredClone(v);
 interface MockOptions {
   latencyMs?: number;
 }
-
-type FacetKey = keyof SearchFacets;
 
 export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClient {
   // In-memory, per-client state so tests are isolated.
@@ -58,82 +48,6 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
     return r;
   };
 
-  /* ------------------------------------------------------------- search */
-
-  function matchesText(p: Package, q: string): number {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return 1;
-    const alias = resolveAlias(needle);
-    const tax = [p.taxonomy.genres.primary, ...p.taxonomy.genres.secondary, ...p.taxonomy.instruments, ...p.taxonomy.moods];
-    let score = 0;
-    if (p.name.toLowerCase().includes(needle)) score += 10;
-    if (p.publisher.name.toLowerCase().includes(needle)) score += 4;
-    if (p.tags.some((t) => t.includes(needle))) score += 3;
-    if (tax.some((t) => t.includes(needle))) score += 3;
-    if (alias && tax.includes(alias.slug)) score += 5;
-    if (p.module?.categories.some((c) => c.includes(needle))) score += 3;
-    if (p.description.toLowerCase().includes(needle)) score += 1;
-    return score;
-  }
-
-  const facetValues: Record<FacetKey, (p: Package) => string[]> = {
-    kind: (p) => [p.kind],
-    genre: (p) => [p.taxonomy.genres.primary, ...p.taxonomy.genres.secondary],
-    instrument: (p) => p.taxonomy.instruments,
-    mood: (p) => p.taxonomy.moods,
-    license: (p) => [p.license.content],
-    moduleClass: (p) => (p.module ? [p.module.moduleClass] : []),
-    key: (p) => (p.musical?.key ? [keyToSlug(p.musical.key)] : []),
-  };
-
-  function passes(p: Package, params: SearchParams, skip?: FacetKey): boolean {
-    const check = (k: FacetKey, selected: string[] | undefined, expand?: (s: string) => string[]) => {
-      if (k === skip || !selected?.length) return true;
-      const values = facetValues[k](p);
-      return selected.some((s) => (expand ? expand(s) : [s]).some((v) => values.includes(v)));
-    };
-    if (!check('kind', params.kind)) return false;
-    if (!check('genre', params.genre, (s) => expandWithChildren('genre', s))) return false;
-    if (!check('instrument', params.instrument, (s) => expandWithChildren('instrument', s))) return false;
-    if (!check('mood', params.mood)) return false;
-    if (!check('license', params.license)) return false;
-    if (!check('moduleClass', params.moduleClass)) return false;
-    if (!check('key', params.key)) return false;
-    const bpm = p.musical?.bpm?.value;
-    if (params.bpmMin !== undefined && (bpm === undefined || bpm < params.bpmMin)) return false;
-    if (params.bpmMax !== undefined && (bpm === undefined || bpm > params.bpmMax)) return false;
-    if (params.q && matchesText(p, params.q) === 0) return false;
-    return true;
-  }
-
-  function facetLabel(k: FacetKey, v: string): string {
-    switch (k) {
-      case 'genre': return termLabel('genre', v);
-      case 'instrument': return termLabel('instrument', v);
-      case 'mood': return termLabel('mood', v);
-      case 'key': {
-        const [tonic, mode] = v.split('-') as [KeyTonic, KeyMode];
-        return formatKey({ tonic, mode });
-      }
-      default: return humanize(v);
-    }
-  }
-
-  function buildFacets(params: SearchParams): SearchFacets {
-    const out = {} as SearchFacets;
-    for (const k of Object.keys(facetValues) as FacetKey[]) {
-      const counts = new Map<string, number>();
-      for (const p of state.packages) {
-        if (!passes(p, params, k)) continue;
-        for (const v of new Set(facetValues[k](p))) counts.set(v, (counts.get(v) ?? 0) + 1);
-      }
-      out[k] = [...counts.entries()]
-        .map<FacetBucket>(([value, count]) => ({ value, count, label: facetLabel(k, value) }))
-        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    }
-    return out;
-  }
-
   /* -------------------------------------------------------------- client */
 
   return {
@@ -147,23 +61,11 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
     },
 
     searchPackages(params) {
-      const page = params.page ?? 1;
-      const limit = params.limit ?? 12;
-      const hits = state.packages.filter((p) => passes(p, params));
-      const sort = params.sort ?? (params.q ? 'relevance' : 'downloads');
-      hits.sort((a, b) => {
-        switch (sort) {
-          case 'newest': return b.updatedAt.localeCompare(a.updatedAt);
-          case 'rating': return b.rating - a.rating;
-          case 'downloads': return b.downloads - a.downloads;
-          default: return matchesText(b, params.q ?? '') - matchesText(a, params.q ?? '') || b.downloads - a.downloads;
-        }
-      });
-      return delay({ items: hits.slice((page - 1) * limit, page * limit), total: hits.length, page, limit });
+      return delay(searchPage(state.packages, params));
     },
 
     searchFacets(params) {
-      return delay(buildFacets(params));
+      return delay(buildFacets(state.packages, params));
     },
 
     getPackage(publisher, slug) {
@@ -229,6 +131,37 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
 
     taxonomy() {
       return delay(taxonomyTerms);
+    },
+
+    myPublishers() {
+      return delay([{ slug: 'acme', name: 'Acme Audio', role: 'owner' as const }]);
+    },
+
+    createPublisher(slug, name) {
+      if (publishers.some((p) => p.slug === slug)) {
+        return Promise.reject(new ApiError(409, 'publisher_slug_taken', 'a publisher with this name already exists'));
+      }
+      publishers.push({ id: slug, slug, name, verified: false });
+      return delay({ slug, name, role: 'owner' as const });
+    },
+
+    uploadBlob(file, { onProgress }) {
+      // Simulated transfer: a few progress ticks, then "verifying" and done.
+      return new Promise<void>((resolve) => {
+        const steps = latencyMs === 0 ? 1 : 5;
+        let i = 0;
+        const tick = () => {
+          i += 1;
+          onProgress?.({ fraction: Math.min(1, i / steps), phase: i < steps ? 'uploading' : 'verifying' });
+          if (i < steps) setTimeout(tick, Math.max(1, latencyMs / 2));
+          else setTimeout(() => {
+            onProgress?.({ fraction: 1, phase: 'done' });
+            resolve();
+          }, latencyMs / 2);
+        };
+        void file;
+        tick();
+      });
     },
 
     publisherPackages(publisher) {

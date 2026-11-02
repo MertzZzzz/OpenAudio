@@ -28,10 +28,22 @@ describe('buildManifest', () => {
   });
 });
 
+const owner = { slug: 'acme', name: 'Acme Audio', role: 'owner' as const };
+const ctx = { publisher: owner, all: [owner], select: () => undefined };
+
+describe('buildManifest number coercion', () => {
+  it('turns raw input strings into numbers and drops empty fields', () => {
+    const raw = { ...defaultValues, packageSlug: 'kit', primaryGenre: 'techno', bpm: '124', bpmMin: '', bpmMax: '', energy: '0.7' } as unknown as Parameters<typeof buildManifest>[0];
+    const m = buildManifest(raw, undefined) as { musical: { bpm: unknown }; taxonomy: { energy: unknown } };
+    expect(m.musical.bpm).toEqual({ value: 124, sync: true });
+    expect(m.taxonomy.energy).toBe(0.7);
+  });
+});
+
 describe('UploadWizardView', () => {
   it('blocks the first step until required fields are valid, prefilled from ?package', async () => {
     const user = userEvent.setup();
-    renderAt('/publisher/upload?package=deep-house-toolkit', '/publisher/upload', <UploadWizardView />);
+    renderAt('/publisher/upload?package=deep-house-toolkit', '/publisher/upload', <UploadWizardView ctx={ctx} />);
 
     const version = await screen.findByLabelText('Version');
     // 1.3.0 draft exists → next minor is suggested.

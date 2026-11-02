@@ -43,11 +43,12 @@ type Config struct {
 	DatabaseURL string
 	AutoMigrate bool
 
-	S3Endpoint  string
-	S3AccessKey string
-	S3SecretKey string
-	S3Bucket    string
-	S3Region    string
+	S3Endpoint       string
+	S3PublicEndpoint string
+	S3AccessKey      string
+	S3SecretKey      string
+	S3Bucket         string
+	S3Region         string
 
 	JWTSecret    []byte
 	JWTIssuer    string
@@ -140,6 +141,7 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", c.WebURL), "/")
 	c.DownloadTTL = duration("DOWNLOAD_URL_TTL", 10*time.Minute)
+	c.S3PublicEndpoint = str("S3_PUBLIC_ENDPOINT", c.S3Endpoint)
 	bytesVar := func(key string, def int64) int64 {
 		v := str(key, "")
 		if v == "" {

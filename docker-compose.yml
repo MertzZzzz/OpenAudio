@@ -64,6 +64,8 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5173}
       DATABASE_URL: postgres://${POSTGRES_USER:-openaudio}:${POSTGRES_PASSWORD:-openaudio}@postgres:5432/${POSTGRES_DB:-openaudio}?sslmode=disable
       S3_ENDPOINT: http://minio:9000
+      # Presigned download URLs must point at an address the browser can reach.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-openaudio}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
       S3_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
@@ -78,6 +80,9 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-OpenAudio <no-reply@openaudio.local>}
+      UPLOAD_PART_SIZE: ${UPLOAD_PART_SIZE:-8388608}
+      MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-2147483648}
+      DOWNLOAD_URL_TTL: ${DOWNLOAD_URL_TTL:-10m}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -98,7 +103,7 @@ services:
     environment:
       CHOKIDAR_USEPOLLING: "true"
       VITE_API_PROXY: http://api:8080
-      VITE_AUTH_MODE: http
+      VITE_API_MODE: http
     depends_on:
       - api
 

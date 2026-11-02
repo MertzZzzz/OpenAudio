@@ -11,7 +11,7 @@ export function usePackageById(id: string) {
 }
 
 export function useVersions(publisher: string, slug: string) {
-  return useQuery({ queryKey: queryKeys.versions(publisher, slug), queryFn: () => api.listVersions(publisher, slug) });
+  return useQuery({ queryKey: queryKeys.versions(publisher, slug), queryFn: () => api.listVersions(publisher, slug), enabled: Boolean(publisher && slug) });
 }
 
 export function useManifest(publisher: string, slug: string, version: string | undefined) {

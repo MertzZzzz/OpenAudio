@@ -3,8 +3,9 @@
 Open platform for publishing, discovering and versioning audio packages — sample packs, presets,
 instruments, effects, MIDI tools and (later) plugin modules.
 
-> **Status:** Phases 0–3 are done: monorepo, clickable UI prototype, Go backend skeleton and authentication
-> (email + password, Google, Discord). The catalog still runs on mock data until Phase 4/5.
+> **Status:** Phases 0–4 are done: UI, Go backend, authentication (email, Google, Discord) and publishing —
+> publishers, packages, resumable SHA-256-verified uploads, validated manifests, immutable releases, yank.
+> Server-side search (Phase 5) and libraries/lockfiles (Phase 6) are next.
 
 ## Quick start
 
@@ -13,7 +14,7 @@ instruments, effects, MIDI tools and (later) plugin modules.
 cp .env.example .env   # optionally add Google/Discord credentials, see docs/auth.md
 docker compose up      # http://localhost:5173 (API proxied at /api), MinIO console :9001
 
-# Frontend only, no backend (auth is mocked: demo@openaudio.dev / openaudio-demo)
+# Frontend only, no backend (everything mocked; demo@openaudio.dev / openaudio-demo)
 cd web && npm ci && npm run dev
 
 # Frontend against a locally running API (make api-run)
@@ -36,6 +37,13 @@ make check                  # everything CI runs
 Email + password (Argon2id, email verification, password reset), **Google** and **Discord** sign-in,
 JWT access tokens + rotating HttpOnly refresh cookies, roles `user` / `publisher` / `admin`.
 Details, provider setup and the OAuth flow: [`docs/auth.md`](docs/auth.md).
+
+## Publishing
+
+Create a publisher (verified email required), create packages, upload files (resumable multipart, verified
+by SHA-256 on the server, deduplicated by content), validate the manifest against the
+`openaudio.package/v1` JSON Schema, publish immutable releases, yank. Roles: owner / maintainer / uploader.
+Flow, API and curl examples: [`docs/publishing.md`](docs/publishing.md).
 
 ## What's in the prototype
 
@@ -69,6 +77,6 @@ See [`docs/architecture.md`](docs/architecture.md) for how the mock API seam wor
 - [x] **Phase 1** — UI prototype on mock data
 - [x] **Phase 2** — Go backend skeleton: config, logging, pgx, golang-migrate (all MVP tables), MinIO, health, error model
 - [x] **Phase 3** — Auth: email/password (Argon2id), Google, Discord, JWT + rotating refresh tokens, email verification, password reset, roles
-- [ ] **Phase 4** — Packages & releases: manifests (JSON Schema), blob uploads with SHA-256 verification, publish/yank
+- [x] **Phase 4** — Packages & releases: publishers & members, manifests (JSON Schema), resumable blob uploads with SHA-256 verification, immutable publish, yank
 - [ ] **Phase 5** — Search over SQL + JSONB, facets; frontend switches to the real API
 - [ ] **Phase 6** — Library, dependency resolution, lockfiles

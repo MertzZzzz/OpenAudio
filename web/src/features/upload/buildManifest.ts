@@ -1,14 +1,33 @@
 import type { Package } from '@/shared/types/domain';
 import { MODULE_KINDS, type WizardValues } from './schema';
 
+/**
+ * Form values come straight from inputs (react-hook-form `watch`), so numeric fields may still
+ * be strings ("124") or empty (""). The manifest schema wants integers.
+ */
+function int(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : undefined;
+}
+
+function num(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Turns wizard state into an `openaudio.package/v1` manifest. */
 export function buildManifest(v: WizardValues, pkg: Pick<Package, 'id' | 'name' | 'publisher'> | undefined): Record<string, unknown> {
   const isModule = MODULE_KINDS.includes(v.kind);
   const musical: Record<string, unknown> = {};
-  if (v.bpm !== undefined) {
+  const bpm = int(v.bpm);
+  const bpmMin = int(v.bpmMin);
+  const bpmMax = int(v.bpmMax);
+  if (bpm !== undefined) {
     musical.bpm = {
-      value: v.bpm,
-      ...(v.bpmMin !== undefined && v.bpmMax !== undefined ? { range: [v.bpmMin, v.bpmMax] } : {}),
+      value: bpm,
+      ...(bpmMin !== undefined && bpmMax !== undefined ? { range: [bpmMin, bpmMax] } : {}),
       sync: true,
     };
   }
@@ -31,7 +50,7 @@ export function buildManifest(v: WizardValues, pkg: Pick<Package, 'id' | 'name' 
       instruments: v.instruments,
       moods: v.moods,
       useCases: v.useCases,
-      energy: v.energy,
+      energy: num(v.energy) ?? 0.5,
     },
     ...(Object.keys(musical).length ? { musical } : {}),
     technical: { formats: formats.length ? formats : ['wav'] },

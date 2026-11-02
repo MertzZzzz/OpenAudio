@@ -22,35 +22,54 @@ import (
 )
 
 type Config struct {
-	Endpoint  string // host:port or URL, e.g. "http://minio:9000"
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	Region    string
-	UseSSL    bool
+	Endpoint string // host:port or URL, e.g. "http://minio:9000"
+	// PublicEndpoint is the address browsers use for presigned URLs (the signature covers the
+	// host, so it must be signed for the public address). Defaults to Endpoint.
+	PublicEndpoint string
+	AccessKey      string
+	SecretKey      string
+	Bucket         string
+	Region         string
+	UseSSL         bool
 }
 
 // Storage implements domain.BlobStore on an S3-compatible service.
 type Storage struct {
-	client *minio.Client
-	core   minio.Core
-	bucket string
+	client  *minio.Client
+	presign *minio.Client
+	core    minio.Core
+	bucket  string
 }
 
 func New(cfg Config) (*Storage, error) {
-	endpoint, secure := cfg.Endpoint, cfg.UseSSL
-	if u, err := url.Parse(cfg.Endpoint); err == nil && u.Host != "" {
+	client, err := newClient(cfg, cfg.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	presign := client
+	if cfg.PublicEndpoint != "" && cfg.PublicEndpoint != cfg.Endpoint {
+		if presign, err = newClient(cfg, cfg.PublicEndpoint); err != nil {
+			return nil, err
+		}
+	}
+	return &Storage{client: client, presign: presign, core: minio.Core{Client: client}, bucket: cfg.Bucket}, nil
+}
+
+func newClient(cfg Config, rawEndpoint string) (*minio.Client, error) {
+	endpoint, secure := rawEndpoint, cfg.UseSSL
+	if u, err := url.Parse(rawEndpoint); err == nil && u.Host != "" {
 		endpoint, secure = u.Host, u.Scheme == "https"
 	}
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: secure,
+		// A fixed region keeps presigning offline (no bucket-location lookup).
 		Region: cfg.Region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("s3 client: %w", err)
 	}
-	return &Storage{client: client, core: minio.Core{Client: client}, bucket: cfg.Bucket}, nil
+	return client, nil
 }
 
 // EnsureBucket creates the bucket when missing (local development convenience).
@@ -86,7 +105,7 @@ func (s *Storage) PresignGet(ctx context.Context, key string, ttl time.Duration,
 	if filename != "" {
 		params.Set("response-content-disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	}
-	u, err := s.client.PresignedGetObject(ctx, s.bucket, key, ttl, params)
+	u, err := s.presign.PresignedGetObject(ctx, s.bucket, key, ttl, params)
 	if err != nil {
 		return "", err
 	}

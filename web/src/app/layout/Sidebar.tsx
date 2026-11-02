@@ -3,7 +3,7 @@ import { cn } from '@/shared/lib/cn';
 import { KIND_META } from '@/shared/lib/kinds';
 import type { PackageKind } from '@/shared/types/domain';
 import { useAuth } from '@/features/auth/AuthContext';
-import { hasRole } from '@/features/auth/types';
+import { apiMode } from '@/shared/lib/apiMode';
 import { primaryNav, publisherNav, type NavItem } from './nav';
 
 const browseKinds: PackageKind[] = ['instrument', 'effect', 'sample-pack', 'preset-pack', 'midi-tool', 'utility'];
@@ -61,7 +61,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           })}
         </ul>
       </div>
-      {hasRole(user, 'publisher') && <NavGroup title="Publisher" items={publisherNav} onNavigate={onNavigate} />}
+      {user && <NavGroup title="Publish" items={publisherNav} onNavigate={onNavigate} />}
     </nav>
   );
 }
@@ -72,7 +72,7 @@ export function Sidebar() {
       <SidebarContent />
       <div className="mx-4 mt-2 rounded-lg border border-border bg-surface p-4 text-caption text-fg-muted">
         <p className="font-semibold text-fg">Prototype</p>
-        <p className="mt-1">Catalog data is mocked. Auth: {import.meta.env.VITE_AUTH_MODE === 'http' ? 'live API' : 'in-memory mock'}.</p>
+        <p className="mt-1">{apiMode === 'http' ? 'Connected to the OpenAudio API.' : 'Offline demo: data comes from an in-memory mock.'}</p>
       </div>
     </aside>
   );

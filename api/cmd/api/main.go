@@ -65,7 +65,7 @@ func run() error {
 	}
 
 	// Object storage: not required for auth, so a failure only degrades readiness.
-	storage, err := s3.New(s3.Config{Endpoint: cfg.S3Endpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Bucket: cfg.S3Bucket, Region: cfg.S3Region})
+	storage, err := s3.New(s3.Config{Endpoint: cfg.S3Endpoint, PublicEndpoint: cfg.S3PublicEndpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Bucket: cfg.S3Bucket, Region: cfg.S3Region})
 	if err != nil {
 		return err
 	}

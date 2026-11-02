@@ -45,6 +45,8 @@ export class HttpApiError extends ApiError {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** Binary request body (sent as application/octet-stream), e.g. an upload part. */
+  rawBody?: Blob;
   /** Skip the automatic refresh-and-retry (used by the auth endpoints themselves). */
   noRetry?: boolean;
 }
@@ -61,11 +63,12 @@ async function parseError(res: Response): Promise<HttpApiError> {
 async function send(path: string, opts: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (opts.rawBody !== undefined) headers['Content-Type'] = 'application/octet-stream';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return fetch(`${API_BASE}${path}`, {
     method: opts.method ?? 'GET',
     headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    body: opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
     credentials: 'include',
   });
 }
@@ -98,7 +101,7 @@ export function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+async function sendWithRefresh(path: string, opts: RequestOptions): Promise<Response> {
   let res = await send(path, opts);
   if (res.status === 401 && !opts.noRetry && accessToken) {
     if (await refreshAccessToken()) {
@@ -108,6 +111,16 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     }
   }
   if (!res.ok) throw await parseError(res);
+  return res;
+}
+
+export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await sendWithRefresh(path, opts);
   if (res.status === 204 || res.status === 202) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** Like request() but returns the raw response (headers + exact body bytes). */
+export function requestRaw(path: string, opts: RequestOptions = {}): Promise<Response> {
+  return sendWithRefresh(path, opts);
 }
