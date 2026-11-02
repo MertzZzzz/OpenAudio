@@ -1,7 +1,6 @@
 import type { ApiClient, DiscoverFeed } from './client';
 import { ApiError } from './client';
-import { request } from './http';
-import { buildFacets, searchPage } from './catalogQuery';
+import { API_BASE, request } from './http';
 import { taxonomyTerms } from './mock/taxonomy';
 import { resolve } from './mock/resolver';
 import type {
@@ -15,6 +14,7 @@ import type {
   PublisherMembership,
   Release,
   Sample,
+  SearchFacets,
   SearchParams,
   ValidationIssue,
 } from '@/shared/types/domain';
@@ -41,6 +41,24 @@ interface PackageDTO {
   module: (Omit<NonNullable<Package['module']>, 'ports'> & { ports?: NonNullable<Package['module']>['ports'] }) | null;
   dependencies: { id: string; range: string }[];
   tags: string[];
+  downloads?: number;
+}
+
+interface SampleDTO {
+  id: string;
+  packageId: string;
+  packageName: string;
+  name: string;
+  file: string;
+  digest: string;
+  contentType: Sample['contentType'];
+  instrument?: string;
+  role?: Sample['role'];
+  bpm: number | null;
+  key: Sample['key'] | null;
+  durationSec: number | null;
+  tags: string[];
+  downloadUrl: string;
 }
 
 interface ReleaseDTO {
@@ -98,7 +116,7 @@ export function toPackage(d: PackageDTO): Package {
     technical: { formats: [], ...(d.technical ?? {}) },
     module: d.module ? { ...d.module, ports: d.module.ports ?? [], categories: d.module.categories ?? [] } : undefined,
     tags: d.tags,
-    downloads: 0,
+    downloads: d.downloads ?? 0,
     rating: 0,
     updatedAt: d.publishedAt ?? d.updatedAt,
     createdAt: d.createdAt,
@@ -122,6 +140,45 @@ function splitId(id: string): [string, string] {
   const i = id.indexOf('.');
   if (i < 0) throw new ApiError(404, 'package_not_found', id);
   return [id.slice(0, i), id.slice(i + 1)];
+}
+
+function toSample(d: SampleDTO): Sample {
+  return {
+    id: d.id,
+    packageId: d.packageId,
+    packageName: d.packageName,
+    name: d.name,
+    file: d.file,
+    instrument: d.instrument ?? 'fx',
+    role: d.role ?? 'fx',
+    bpm: d.bpm ?? undefined,
+    key: d.key ?? undefined,
+    durationSec: d.durationSec ?? 0,
+    contentType: d.contentType,
+    tags: d.tags,
+    previewUrl: '',
+    digest: d.digest,
+    downloadUrl: d.downloadUrl,
+  };
+}
+
+/** Maps UI search params to the /search query string (lists are comma-separated). */
+export function searchQuery(p: SearchParams, paging: boolean): string {
+  const qs = new URLSearchParams();
+  if (p.q) qs.set('q', p.q);
+  const lists: [string, string[] | undefined][] = [
+    ['kind', p.kind], ['genre', p.genre], ['instrument', p.instrument], ['mood', p.mood],
+    ['license', p.license], ['moduleClass', p.moduleClass], ['key', p.key],
+  ];
+  for (const [k, v] of lists) if (v?.length) qs.set(k, v.join(','));
+  if (p.bpmMin !== undefined) qs.set('bpmMin', String(p.bpmMin));
+  if (p.bpmMax !== undefined) qs.set('bpmMax', String(p.bpmMax));
+  if (paging) {
+    if (p.sort) qs.set('sort', p.sort);
+    if (p.page) qs.set('page', String(p.page));
+    if (p.limit) qs.set('limit', String(Math.min(p.limit, 100)));
+  }
+  return qs.toString();
 }
 
 const pkgPath = (publisher: string, slug: string) => `/packages/${encodeURIComponent(publisher)}/${encodeURIComponent(slug)}`;
@@ -152,53 +209,12 @@ function saveLibrary(lib: Library): Library {
 
 /* ---------------------------------------------------------------- client */
 
-/** Catalog cache window for client-side search (server-side search arrives in Phase 5). */
-const SEARCH_WINDOW = 100;
-
 export function createHttpClient(): ApiClient {
-  const allPackages = async (params: Pick<SearchParams, 'q' | 'kind'> = {}): Promise<Package[]> => {
-    const qs = new URLSearchParams({ limit: String(SEARCH_WINDOW), sort: 'newest' });
-    // Text search stays client-side (aliases, tags, taxonomy); kind can be filtered server-side.
-    if (params.kind?.length === 1) qs.set('kind', params.kind[0]!);
-    const page = await request<{ items: PackageDTO[] }>(`/packages?${qs}`);
-    return page.items.map(toPackage);
-  };
-
   const getPackage = async (publisher: string, slug: string) => toPackage(await request<PackageDTO>(pkgPath(publisher, slug)));
   const listVersions = async (publisher: string, slug: string) => (await request<ReleaseDTO[]>(`${pkgPath(publisher, slug)}/versions`)).map(toRelease);
 
   const manifestOf = async (publisher: string, slug: string, version: string): Promise<Record<string, unknown>> =>
     request<Record<string, unknown>>(`${pkgPath(publisher, slug)}/versions/${encodeURIComponent(version)}/manifest`);
-
-  async function samplesOf(p: Package): Promise<Sample[]> {
-    if (p.latestVersion === '0.0.0' || p.sampleCount === 0) return [];
-    const m = (await manifestOf(p.publisher.slug, p.slug, p.latestVersion)) as {
-      artifacts?: ArtifactDTO[];
-      samples?: { id: string; file: string; contentType?: Sample['contentType']; instrument?: string; role?: Sample['role']; bpm?: number; key?: Sample['key']; durationSec?: number; tags?: string[] }[];
-    };
-    const meta = new Map((m.samples ?? []).map((s) => [s.file, s]));
-    return (m.artifacts ?? [])
-      .filter((a) => a.kind === 'sample')
-      .map((a) => {
-        const s = meta.get(a.path);
-        const name = a.path.split('/').pop()!.replace(/\.[a-z0-9]+$/i, '');
-        return {
-          id: `${p.id}/${a.path}`,
-          packageId: p.id,
-          name: s?.id ?? name,
-          file: a.path,
-          instrument: s?.instrument ?? p.taxonomy.instruments[0] ?? 'fx',
-          role: s?.role ?? 'fx',
-          bpm: s?.bpm,
-          key: s?.key,
-          durationSec: s?.durationSec ?? 0,
-          contentType: s?.contentType ?? 'one-shot',
-          tags: s?.tags ?? p.tags.slice(0, 2),
-          previewUrl: '',
-          digest: a.digest,
-        } satisfies Sample;
-      });
-  }
 
   const libraryPackages = async (lib: Library) => {
     const pkgs = await Promise.all(lib.items.map((i) => getPackageByIdSafe(i.packageId)));
@@ -216,17 +232,19 @@ export function createHttpClient(): ApiClient {
 
   return {
     async discover(): Promise<DiscoverFeed> {
-      const list = await allPackages();
-      return { popular: list.slice(0, 8), newReleases: list.slice(0, 8), editorsPicks: [] };
+      const [popular, newest] = await Promise.all([
+        request<{ items: PackageDTO[] }>('/search?sort=downloads&limit=8'),
+        request<{ items: PackageDTO[] }>('/search?sort=newest&limit=8'),
+      ]);
+      return { popular: popular.items.map(toPackage), newReleases: newest.items.map(toPackage), editorsPicks: [] };
     },
 
     async searchPackages(params): Promise<Page<Package>> {
-      return searchPage(await allPackages(params), { ...params, sort: params.sort ?? (params.q ? 'relevance' : 'newest') });
+      const res = await request<{ items: PackageDTO[]; total: number; page: number; limit: number }>(`/search?${searchQuery(params, true)}`);
+      return { items: res.items.map(toPackage), total: res.total, page: res.page, limit: res.limit };
     },
 
-    async searchFacets(params) {
-      return buildFacets(await allPackages(), params);
-    },
+    searchFacets: (params) => request<SearchFacets>(`/search/facets?${searchQuery(params, false)}`),
 
     getPackage,
     getPackageById(id) {
@@ -238,26 +256,30 @@ export function createHttpClient(): ApiClient {
 
     async listArtifacts(publisher, slug, version) {
       const r = await request<{ artifacts: ArtifactDTO[] }>(`${pkgPath(publisher, slug)}/releases/${encodeURIComponent(version)}`);
-      return r.artifacts.map((a) => ({ kind: a.kind, path: a.path, digest: a.digest, size: a.size, contentType: a.contentType ?? '' }));
+      const filesBase = `${API_BASE}${pkgPath(publisher, slug)}/releases/${encodeURIComponent(version)}/files/`;
+      return r.artifacts.map((a) => ({
+        kind: a.kind,
+        path: a.path,
+        digest: a.digest,
+        size: a.size,
+        contentType: a.contentType ?? '',
+        // Downloads go through the API (counted, then redirected to a presigned URL).
+        downloadUrl: a.downloadUrl ? filesBase + a.path.split('/').map(encodeURIComponent).join('/') : undefined,
+      }));
     },
 
     async searchSamples(query) {
-      let pkgs: Package[];
-      if (query.packageId) {
-        pkgs = [await this.getPackageById(query.packageId)];
-      } else {
-        pkgs = (await allPackages({ kind: ['sample-pack'] })).filter((p) => p.sampleCount > 0).slice(0, 20);
-      }
-      const all = (await Promise.all(pkgs.map(samplesOf))).flat();
-      const q = query.q?.toLowerCase().trim();
-      return all.filter((s) => {
-        if (q && !s.name.toLowerCase().includes(q) && !s.tags.some((t) => t.includes(q)) && !s.instrument.includes(q)) return false;
-        if (query.instrument?.length && !query.instrument.includes(s.instrument)) return false;
-        if (query.contentType?.length && !query.contentType.includes(s.contentType)) return false;
-        if (query.bpmMin !== undefined && (s.bpm === undefined || s.bpm < query.bpmMin)) return false;
-        if (query.bpmMax !== undefined && (s.bpm === undefined || s.bpm > query.bpmMax)) return false;
-        return true;
-      });
+      const qs = new URLSearchParams({ limit: '100' });
+      if (query.q) qs.set('q', query.q);
+      if (query.packageId) qs.set('package', query.packageId);
+      if (query.instrument?.length) qs.set('instrument', query.instrument.join(','));
+      if (query.contentType?.length === 1) qs.set('contentType', query.contentType[0]!);
+      if (query.key?.length) qs.set('key', query.key.join(','));
+      if (query.bpmMin !== undefined) qs.set('bpmMin', String(query.bpmMin));
+      if (query.bpmMax !== undefined) qs.set('bpmMax', String(query.bpmMax));
+      if (query.durationMax !== undefined) qs.set('durationMax', String(query.durationMax));
+      const res = await request<{ items: SampleDTO[] }>(`/search/samples?${qs}`);
+      return res.items.map(toSample);
     },
 
     taxonomy: () => Promise.resolve(taxonomyTerms),

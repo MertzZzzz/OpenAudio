@@ -1,4 +1,4 @@
-.PHONY: help up down logs web-install web-dev web-build web-test web-typecheck openapi-lint check api-run api-build api-test api-test-integration api-lint
+.PHONY: help up down logs seed web-install web-dev web-build web-test web-typecheck openapi-lint check api-run api-build api-test api-test-integration api-lint
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -13,6 +13,9 @@ down: ## Stop the stack
 
 logs: ## Tail compose logs
 	docker compose logs -f
+
+seed: ## Publish demo packages through the API (needs ADMIN_EMAILS=demo@openaudio.dev)
+	python3 scripts/seed_demo.py --api $${API:-http://localhost:5173/api/v1}
 
 web-install: ## Install frontend dependencies
 	cd web && npm ci

@@ -15,7 +15,7 @@ import { formatBytes } from '@/shared/lib/format';
 import { downloadJson } from '@/shared/lib/download';
 import { useSearch } from '@/features/search/api';
 import { useSamples } from './api';
-import { SampleTable } from './SampleTable';
+import { SampleTable, downloadSample } from './SampleTable';
 
 const ALL_PACKAGES = { limit: 200 };
 const INSTRUMENTS = ['drums', 'kick', 'snare', 'hi-hat', 'clap', 'percussion', 'bass', 'synth', 'pad', 'keys', 'vocals', 'fx'];
@@ -78,8 +78,13 @@ export function SampleBrowserView() {
 
   const batchDownload = () => {
     downloadJson('openaudio-download-plan.json', {
-      note: 'Phase 1 mock: the backend will return presigned URLs for each blob.',
-      items: selectedSamples.map((s) => ({ id: s.id, file: s.file, digest: s.digest, url: `mock://blobs/${s.digest.slice(7)}` })),
+      note: 'Each URL counts a download and redirects to a short-lived presigned link.',
+      items: selectedSamples.map((s) => ({
+        id: s.id,
+        file: s.file,
+        digest: s.digest,
+        url: s.downloadUrl ? new URL(s.downloadUrl, window.location.origin).toString() : `mock://blobs/${s.digest.slice(7)}`,
+      })),
     });
     toast({ tone: 'success', title: `Prepared ${selectedSamples.length} samples`, description: 'Download plan saved (mock).' });
   };
@@ -175,7 +180,7 @@ export function SampleBrowserView() {
             selected={selected}
             onToggleSelect={toggleSelect}
             onToggleAll={toggleAll}
-            onDownload={(s) => toast({ tone: 'info', title: `Download queued: ${s.name}`, description: 'Presigned URLs arrive with the backend.' })}
+            onDownload={(s) => downloadSample(s, toast)}
           />
         </div>
       )}

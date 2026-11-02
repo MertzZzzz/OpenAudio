@@ -152,6 +152,7 @@ export interface Artifact {
   digest: string;
   size: number;
   contentType: string;
+  downloadUrl?: string;
 }
 
 export type SampleContentType = 'loop' | 'one-shot';
@@ -170,6 +171,9 @@ export interface Sample {
   tags: string[];
   previewUrl: string;
   digest: string;
+  /** Counted download (API path redirecting to a presigned URL); absent in mock mode. */
+  downloadUrl?: string;
+  packageName?: string;
 }
 
 export interface TaxonomyTerm {
@@ -264,6 +268,8 @@ export interface SearchFacets {
   license: FacetBucket[];
   moduleClass: FacetBucket[];
   key: FacetBucket[];
+  /** BPM ranges, values like "120-129". */
+  bpm: FacetBucket[];
 }
 
 export interface SampleQuery {

@@ -10,6 +10,15 @@ import { termLabel } from '@/shared/lib/taxonomy';
 import { sampleTrack } from '@/features/catalog/toTrack';
 import { cn } from '@/shared/lib/cn';
 
+/** Starts a counted download (API redirect) or explains that the offline demo has no files. */
+export function downloadSample(s: Sample, toast: (t: { tone: 'info'; title: string; description?: string }) => void): void {
+  if (s.downloadUrl) {
+    window.location.assign(s.downloadUrl);
+    return;
+  }
+  toast({ tone: 'info', title: `Download queued: ${s.name}`, description: 'The offline demo has no real files.' });
+}
+
 export interface SampleTableProps {
   samples: Sample[];
   packageNames?: Record<string, string>;
@@ -64,7 +73,7 @@ export function SampleTable({ samples, packageNames, selected, onToggleSelect, o
                   {s.contentType === 'loop' ? <Repeat className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="Loop" /> : <Zap className="h-3.5 w-3.5 shrink-0 text-warning" aria-label="One-shot" />}
                   {s.name}
                 </p>
-                <p className="truncate font-mono text-caption text-fg-subtle">{packageNames?.[s.packageId] ?? s.file}</p>
+                <p className="truncate font-mono text-caption text-fg-subtle">{packageNames?.[s.packageId] ?? s.packageName ?? s.file}</p>
               </TD>
               <TD className="hidden md:table-cell">
                 <Waveform seed={s.id} bars={40} progress={progress} className="h-6" />
@@ -72,7 +81,7 @@ export function SampleTable({ samples, packageNames, selected, onToggleSelect, o
               <TD>{termLabel('instrument', s.instrument)}</TD>
               <TD className="whitespace-nowrap text-right font-mono text-caption">{s.bpm ?? '—'}</TD>
               <TD className="whitespace-nowrap font-mono text-caption">{formatKey(s.key)}</TD>
-              <TD className="whitespace-nowrap text-right font-mono text-caption">{formatLength(s.durationSec)}</TD>
+              <TD className="whitespace-nowrap text-right font-mono text-caption">{s.durationSec > 0 ? formatLength(s.durationSec) : "—"}</TD>
               <TD className="hidden lg:table-cell">
                 <div className="flex gap-1">
                   {s.tags.map((t) => (

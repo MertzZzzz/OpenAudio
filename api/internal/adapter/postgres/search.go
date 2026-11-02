@@ -162,16 +162,10 @@ func (r *SearchRepo) Search(ctx context.Context, q domain.SearchQuery) ([]domain
 	return out, total, rows.Err()
 }
 
-// bpmBucket groups BPMs into the ranges producers think in.
-const bpmBucket = `CASE
-  WHEN s.bpm < 80 THEN '0-79'
-  WHEN s.bpm < 100 THEN '80-99'
-  WHEN s.bpm < 120 THEN '100-119'
-  WHEN s.bpm < 130 THEN '120-129'
-  WHEN s.bpm < 140 THEN '130-139'
-  WHEN s.bpm < 160 THEN '140-159'
-  WHEN s.bpm < 180 THEN '160-179'
-  ELSE '180-400' END`
+// bpmBuckets are the ranges producers think in. A package is counted in every bucket its BPM
+// range overlaps — the same rule the bpmMin/bpmMax filter uses, so counts match results.
+const bpmBuckets = `(VALUES ('0-79', 0, 79), ('80-99', 80, 99), ('100-119', 100, 119), ('120-129', 120, 129),
+  ('130-139', 130, 139), ('140-159', 140, 159), ('160-179', 160, 179), ('180-400', 180, 400)) AS b(v, lo, hi)`
 
 func (r *SearchRepo) Facets(ctx context.Context, q domain.SearchQuery) (domain.Facets, error) {
 	out := domain.Facets{}
@@ -193,19 +187,24 @@ func (r *SearchRepo) Facets(ctx context.Context, q domain.SearchQuery) (domain.F
 		return rows.Err()
 	}
 	scalar := map[string]string{
-		domain.FacetKind: "s.kind", domain.FacetModuleClass: "s.module_class", domain.FacetKey: "s.music_key",
-		domain.FacetLicense: "s.license", domain.FacetBPM: bpmBucket,
+		domain.FacetKind: "s.kind", domain.FacetModuleClass: "s.module_class", domain.FacetKey: "s.music_key", domain.FacetLicense: "s.license",
 	}
 	for facet, col := range scalar {
 		a := &args{}
 		conds, _, _ := where(a, q, facet)
-		nullCol := col
-		if facet == domain.FacetBPM {
-			nullCol = "s.bpm"
-		}
-		conds = append(conds, nullCol+" IS NOT NULL")
+		conds = append(conds, col+" IS NOT NULL")
 		sql := `SELECT ` + col + ` AS v, count(*) FROM package_search s` + whereSQL(conds) + ` GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`
 		if err := count(facet, sql, a); err != nil {
+			return nil, err
+		}
+	}
+	{
+		a := &args{}
+		conds, _, _ := where(a, q, domain.FacetBPM)
+		sql := `SELECT b.v, count(*) FROM package_search s JOIN ` + bpmBuckets +
+			` ON COALESCE(s.bpm_max, s.bpm) >= b.lo AND COALESCE(s.bpm_min, s.bpm) <= b.hi` + whereSQL(conds) +
+			` GROUP BY b.v, b.lo ORDER BY b.lo`
+		if err := count(domain.FacetBPM, sql, a); err != nil {
 			return nil, err
 		}
 	}

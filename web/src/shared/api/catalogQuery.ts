@@ -8,7 +8,7 @@ import { expandWithChildren, resolveAlias, termLabel } from '@/shared/lib/taxono
  * Used by the mock API and — until server-side search lands in Phase 5 — by the HTTP client.
  */
 
-type FacetKey = keyof SearchFacets;
+type FacetKey = Exclude<keyof SearchFacets, 'bpm'>;
 
 export function matchesText(p: Package, q: string): number {
   const needle = q.trim().toLowerCase();
@@ -36,7 +36,7 @@ const facetValues: Record<FacetKey, (p: Package) => string[]> = {
   key: (p) => (p.musical?.key ? [keyToSlug(p.musical.key)] : []),
 };
 
-export function passes(p: Package, params: SearchParams, skip?: FacetKey): boolean {
+export function passes(p: Package, params: SearchParams, skip?: FacetKey | 'bpm'): boolean {
   const check = (k: FacetKey, selected: string[] | undefined, expand?: (s: string) => string[]) => {
     if (k === skip || !selected?.length) return true;
     const values = facetValues[k](p);
@@ -50,6 +50,7 @@ export function passes(p: Package, params: SearchParams, skip?: FacetKey): boole
   if (!check('moduleClass', params.moduleClass)) return false;
   if (!check('key', params.key)) return false;
   const bpm = p.musical?.bpm?.value;
+  if (skip === 'bpm') return params.q ? matchesText(p, params.q) > 0 : true;
   if (params.bpmMin !== undefined && (bpm === undefined || bpm < params.bpmMin)) return false;
   if (params.bpmMax !== undefined && (bpm === undefined || bpm > params.bpmMax)) return false;
   if (params.q && matchesText(p, params.q) === 0) return false;
@@ -85,7 +86,29 @@ export function buildFacets(packages: Package[], params: SearchParams): SearchFa
       .map<FacetBucket>(([value, count]) => ({ value, count, label: facetLabel(k, value) }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   }
+  const buckets = new Map<string, number>();
+  for (const p of packages) {
+    const bpm = p.musical?.bpm?.value;
+    if (bpm === undefined || !passes(p, params, 'bpm')) continue;
+    const b = BPM_BUCKETS.find(([lo, hi]) => bpm >= lo && bpm <= hi)!;
+    const key = `${b[0]}-${b[1]}`;
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  out.bpm = [...buckets.entries()]
+    .map(([value, count]) => ({ value, count, label: bpmLabel(value) }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
   return out;
+}
+
+/** Same ranges as the server (api/internal/adapter/postgres/search.go). */
+export const BPM_BUCKETS: [number, number][] = [
+  [0, 79], [80, 99], [100, 119], [120, 129], [130, 139], [140, 159], [160, 179], [180, 400],
+];
+
+export function bpmLabel(value: string): string {
+  if (value === '0-79') return '< 80';
+  if (value === '180-400') return '180+';
+  return value.replace('-', '–');
 }
 
 export function searchPage(packages: Package[], params: SearchParams): Page<Package> {

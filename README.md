@@ -3,9 +3,9 @@
 Open platform for publishing, discovering and versioning audio packages — sample packs, presets,
 instruments, effects, MIDI tools and (later) plugin modules.
 
-> **Status:** Phases 0–4 are done: UI, Go backend, authentication (email, Google, Discord) and publishing —
-> publishers, packages, resumable SHA-256-verified uploads, validated manifests, immutable releases, yank.
-> Server-side search (Phase 5) and libraries/lockfiles (Phase 6) are next.
+> **Status:** Phases 0–5 are done: UI, Go backend, authentication (email, Google, Discord), publishing
+> (resumable SHA-256-verified uploads, validated manifests, immutable releases, yank) and server-side search
+> with facets. Libraries and lockfiles on the server (Phase 6) are next.
 
 ## Quick start
 
@@ -13,6 +13,10 @@ instruments, effects, MIDI tools and (later) plugin modules.
 # Whole stack: PostgreSQL + MinIO + Go API + web
 cp .env.example .env   # optionally add Google/Discord credentials, see docs/auth.md
 docker compose up      # http://localhost:5173 (API proxied at /api), MinIO console :9001
+
+# Demo catalog (8 packages) — the seeding account must be an admin:
+#   ADMIN_EMAILS=demo@openaudio.dev in .env, then
+make seed
 
 # Frontend only, no backend (everything mocked; demo@openaudio.dev / openaudio-demo)
 cd web && npm ci && npm run dev
@@ -44,6 +48,12 @@ Create a publisher (verified email required), create packages, upload files (res
 by SHA-256 on the server, deduplicated by content), validate the manifest against the
 `openaudio.package/v1` JSON Schema, publish immutable releases, yank. Roles: owner / maintainer / uploader.
 Flow, API and curl examples: [`docs/publishing.md`](docs/publishing.md).
+
+## Search
+
+PostgreSQL full-text search (prefix matching, taxonomy aliases such as `dnb`, genre hierarchy) with filters for
+kind, genre, instrument, mood, BPM, key, license and module class; facets that ignore their own selection; sample
+search with metadata inherited from the package; counted downloads. Details: [`docs/search.md`](docs/search.md).
 
 ## What's in the prototype
 
@@ -78,5 +88,5 @@ See [`docs/architecture.md`](docs/architecture.md) for how the mock API seam wor
 - [x] **Phase 2** — Go backend skeleton: config, logging, pgx, golang-migrate (all MVP tables), MinIO, health, error model
 - [x] **Phase 3** — Auth: email/password (Argon2id), Google, Discord, JWT + rotating refresh tokens, email verification, password reset, roles
 - [x] **Phase 4** — Packages & releases: publishers & members, manifests (JSON Schema), resumable blob uploads with SHA-256 verification, immutable publish, yank
-- [ ] **Phase 5** — Search over SQL + JSONB, facets; frontend switches to the real API
+- [x] **Phase 5** — Search over SQL + JSONB (tsvector index maintained by triggers), facets incl. BPM buckets, sample search; frontend on the real API
 - [ ] **Phase 6** — Library, dependency resolution, lockfiles

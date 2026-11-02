@@ -18,6 +18,13 @@ const FACET_TITLES: Record<ListKey, string> = {
   key: 'Key',
   license: 'License',
 };
+const BPM_PRESETS: FacetBucket[] = [
+  { value: '80-99', label: '80–99', count: 0 },
+  { value: '120-129', label: '120–129', count: 0 },
+  { value: '130-139', label: '130–139', count: 0 },
+  { value: '160-179', label: '160–179', count: 0 },
+];
+
 const ORDER: ListKey[] = ['kind', 'moduleClass', 'genre', 'instrument', 'mood', 'key', 'license'];
 
 function FacetGroup({ facet, buckets, selected, onToggle }: { facet: ListKey; buckets: FacetBucket[]; selected: string[]; onToggle: (v: string) => void }) {
@@ -62,7 +69,7 @@ function FacetGroup({ facet, buckets, selected, onToggle }: { facet: ListKey; bu
   );
 }
 
-function BpmRange({ min, max, onChange }: { min?: number; max?: number; onChange: (min?: number, max?: number) => void }) {
+function BpmRange({ min, max, onChange, buckets }: { min?: number; max?: number; onChange: (min?: number, max?: number) => void; buckets?: FacetBucket[] }) {
   const [lo, setLo] = useState(min?.toString() ?? '');
   const [hi, setHi] = useState(max?.toString() ?? '');
   const dLo = useDebounce(lo, 400);
@@ -87,22 +94,24 @@ function BpmRange({ min, max, onChange }: { min?: number; max?: number; onChange
         <span className="text-fg-subtle">–</span>
         <Input type="number" inputMode="numeric" min={20} max={400} placeholder="Max" value={hi} onChange={(e) => setHi(e.target.value)} aria-label="Maximum BPM" />
       </div>
-      <div className="mt-2 flex flex-wrap gap-1">
-        {[
-          [80, 100],
-          [118, 128],
-          [128, 140],
-          [170, 180],
-        ].map(([a, b]) => (
-          <button
-            key={a}
-            type="button"
-            onClick={() => onChange(a, b)}
-            className={cn('rounded-full border px-2 py-0.5 text-caption', min === a && max === b ? 'border-primary text-fg' : 'border-border text-fg-muted hover:text-fg')}
-          >
-            {a}–{b}
-          </button>
-        ))}
+      <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="BPM ranges">
+        {(buckets?.length ? buckets : BPM_PRESETS).map((b) => {
+          const [a, z] = b.value.split('-').map(Number) as [number, number];
+          const lo = Math.max(a, 20);
+          const active = min === lo && max === z;
+          return (
+            <button
+              key={b.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => (active ? onChange(undefined, undefined) : onChange(lo, z))}
+              className={cn('rounded-full border px-2 py-0.5 text-caption', active ? 'border-primary text-fg' : 'border-border text-fg-muted hover:text-fg')}
+            >
+              {b.label}
+              {b.count > 0 && <span className="ml-1 text-fg-subtle">{b.count}</span>}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -141,7 +150,7 @@ export function FacetPanel({ params, facets, loading, onToggle, onBpm, onClear, 
             {ORDER.slice(0, 4).map((k) => (
               <FacetGroup key={k} facet={k} buckets={facets[k]} selected={params[k] ?? []} onToggle={(v) => onToggle(k, v)} />
             ))}
-            <BpmRange min={params.bpmMin} max={params.bpmMax} onChange={onBpm} />
+            <BpmRange min={params.bpmMin} max={params.bpmMax} onChange={onBpm} buckets={facets.bpm} />
             {ORDER.slice(4).map((k) => (
               <FacetGroup key={k} facet={k} buckets={facets[k]} selected={params[k] ?? []} onToggle={(v) => onToggle(k, v)} />
             ))}

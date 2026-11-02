@@ -180,10 +180,11 @@ BEGIN
   SELECT rel.id, pkg, a ->> 'path',
          COALESCE(s ->> 'id', regexp_replace(regexp_replace(a ->> 'path', '^.*/', ''), '\.[A-Za-z0-9]+$', '')),
          a ->> 'digest', (a ->> 'size')::bigint,
-         COALESCE(s ->> 'contentType', CASE WHEN a ->> 'path' ~* '(^|/)loops?/' THEN 'loop' ELSE 'one-shot' END),
+         ct.content_type,
          COALESCE(s ->> 'instrument', m #>> '{taxonomy,instruments,0}'),
          s ->> 'role',
-         COALESCE(jsonb_int(s -> 'bpm'), jsonb_int(m #> '{musical,bpm,value}')),
+         -- Tempo is only inherited by loops; a one-shot kick has no meaningful BPM.
+         COALESCE(jsonb_int(s -> 'bpm'), CASE WHEN ct.content_type = 'loop' THEN jsonb_int(m #> '{musical,bpm,value}') END),
          COALESCE(CASE WHEN s #>> '{key,tonic}' IS NOT NULL THEN (s #>> '{key,tonic}') || '-' || (s #>> '{key,mode}') END, key),
          CASE WHEN jsonb_typeof(s -> 'durationSec') = 'number' THEN (s ->> 'durationSec')::numeric END,
          CASE WHEN s ? 'moods' THEN jsonb_text_array(s -> 'moods') ELSE jsonb_text_array(m #> '{taxonomy,moods}') END,
@@ -192,6 +193,9 @@ BEGIN
   LEFT JOIN LATERAL (
     SELECT x AS s FROM jsonb_array_elements(COALESCE(m -> 'samples', '[]'::jsonb)) x WHERE x ->> 'file' = a ->> 'path' LIMIT 1
   ) meta ON true
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(s ->> 'contentType', CASE WHEN a ->> 'path' ~* '(^|/)loops?/' THEN 'loop' ELSE 'one-shot' END) AS content_type
+  ) ct
   WHERE a ->> 'kind' = 'sample';
 END;
 $$;

@@ -56,6 +56,6 @@ EmptyState, PackageCover, Waveform.
 
 With `VITE_API_MODE=http` (set by docker compose) the web app talks to the Go API through
 `shared/api/httpClient.ts` and `features/auth/authApi.ts`; without it everything runs on in-memory mocks with the
-same interfaces. Interim gaps of the HTTP mode until the next phases: search filters/facets are computed client-side
-over the 100 newest packages (Phase 5), and the library lives in `localStorage` (Phase 6).
+same interfaces. Search, facets and samples come from the API (see [search.md](search.md)); the library still lives in
+`localStorage` until Phase 6.
 See [auth.md](auth.md) and [publishing.md](publishing.md).

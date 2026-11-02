@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { FileJson, FileAudio, Binary, Ban } from 'lucide-react';
+import { FileJson, FileAudio, Binary, Ban, Download } from 'lucide-react';
 import type { Package, Release } from '@/shared/types/domain';
 import { Badge } from '@/shared/ui/Badge';
 import { Table, TBody, TD, TH, THead, TR } from '@/shared/ui/Table';
@@ -7,7 +7,7 @@ import { Skeleton } from '@/shared/ui/Skeleton';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { formatBytes, formatDate, shortDigest } from '@/shared/lib/format';
 import { useToast } from '@/shared/ui/Toast';
-import { SampleTable } from '@/features/sample-browser/SampleTable';
+import { SampleTable, downloadSample } from '@/features/sample-browser/SampleTable';
 import { useSamples } from '@/features/sample-browser/api';
 import { packageHref } from '@/features/catalog/PackageCard';
 import { useArtifacts, usePackageById } from './api';
@@ -96,6 +96,7 @@ export function FilesTab({ pkg, version }: { pkg: Package; version: string }) {
             <TH>Kind</TH>
             <TH className="text-right">Size</TH>
             <TH>Digest</TH>
+            <TH className="w-12"><span className="sr-only">Download</span></TH>
           </tr>
         </THead>
         <TBody>
@@ -119,6 +120,13 @@ export function FilesTab({ pkg, version }: { pkg: Package; version: string }) {
                   {shortDigest(a.digest)}
                 </button>
               </TD>
+              <TD>
+                {a.downloadUrl && (
+                  <a href={a.downloadUrl} aria-label={`Download ${a.path}`} className="inline-flex rounded p-1.5 text-fg-muted hover:bg-surface-raised hover:text-fg">
+                    <Download className="h-4 w-4" />
+                  </a>
+                )}
+              </TD>
             </TR>
           ))}
         </TBody>
@@ -137,7 +145,7 @@ export function SamplesTab({ pkg }: { pkg: Package }) {
       <p className="text-caption text-fg-muted">
         Showing {data.length} of {pkg.sampleCount} samples. <Link to={`/samples?package=${encodeURIComponent(pkg.id)}`} className="text-primary hover:underline">Open in sample browser →</Link>
       </p>
-      <SampleTable samples={data} onDownload={(s) => toast({ tone: 'info', title: `Download queued: ${s.name}`, description: 'Presigned URLs arrive with the backend.' })} />
+      <SampleTable samples={data} onDownload={(s) => downloadSample(s, toast)} />
     </div>
   );
 }

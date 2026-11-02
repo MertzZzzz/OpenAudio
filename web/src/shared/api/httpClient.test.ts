@@ -85,3 +85,26 @@ describe('publisher permissions', () => {
     ['uploader', 'packages', false],
   ] as const)('%s can %s → %s', (role, action, ok) => expect(can(role, action)).toBe(ok));
 });
+
+describe('server-side search', () => {
+  it('maps UI params to the /search query string', async () => {
+    const { searchQuery } = await import('./httpClient');
+    expect(searchQuery({ q: 'dnb', kind: ['sample-pack', 'effect'], genre: ['house'], bpmMin: 120, sort: 'newest', page: 2, limit: 500 }, true)).toBe(
+      'q=dnb&kind=sample-pack%2Ceffect&genre=house&bpmMin=120&sort=newest&page=2&limit=100',
+    );
+    expect(searchQuery({ q: 'x', page: 3 }, false)).toBe('q=x');
+  });
+
+  it('maps sample hits including the counted download URL', async () => {
+    vi.stubGlobal('fetch', (url: string) => {
+      expect(url).toBe('/api/v1/search/samples?limit=100&package=acme.kit&contentType=loop');
+      return Promise.resolve(
+        json(200, {
+          items: [{ id: 'acme.kit/a.wav', packageId: 'acme.kit', packageName: 'Kit', name: 'a', file: 'a.wav', digest: 'sha256:x', contentType: 'loop', bpm: null, key: { tonic: 'F', mode: 'minor' }, durationSec: null, tags: [], downloadUrl: '/api/v1/packages/acme/kit/releases/1.0.0/files/a.wav' }],
+        }),
+      );
+    });
+    const [s] = await createHttpClient().searchSamples({ packageId: 'acme.kit', contentType: ['loop'] });
+    expect(s).toMatchObject({ bpm: undefined, durationSec: 0, packageName: 'Kit', key: { tonic: 'F', mode: 'minor' }, downloadUrl: '/api/v1/packages/acme/kit/releases/1.0.0/files/a.wav' });
+  });
+});

@@ -216,6 +216,7 @@ func TestSearch(t *testing.T) {
 		assert.Equal(t, 2, bucket(fs, "instrument", "drums"))
 		assert.Equal(t, 1, bucket(fs, "bpm", "120-129"))
 		assert.Equal(t, 1, bucket(fs, "bpm", "160-179"))
+		assert.Equal(t, 0, bucket(fs, "bpm", "130-139"), "range 122–126 does not reach 130")
 		assert.Equal(t, 1, bucket(fs, "key", "E-minor"))
 		assert.Equal(t, 1, bucket(fs, "license", "CC-BY-4.0"))
 		assert.Empty(t, fs["moduleClass"])
@@ -257,7 +258,8 @@ func TestSearch(t *testing.T) {
 		assert.Equal(t, "loop", bass.ContentType, "loops/ folder")
 		assert.Equal(t, "drums", bass.Instrument, "first package instrument")
 		require.NotNil(t, bass.BPM)
-		assert.Equal(t, 124, *bass.BPM)
+		assert.Equal(t, 124, *bass.BPM, "loops inherit the package tempo")
+		assert.Nil(t, kick.BPM, "one-shots do not")
 		assert.Equal(t, []string{"analog", "tape"}, bass.Tags)
 
 		for name, sq := range map[string]domain.SampleQuery{
@@ -271,7 +273,9 @@ func TestSearch(t *testing.T) {
 			require.Len(t, hits, 1, name)
 			assert.Equal(t, "one-shots/kick-01.wav", hits[0].Path, name)
 		}
-		hits, _, _ := search.Samples(ctx, domain.SampleQuery{BPMMin: ip(170), Limit: 10})
+		hits, _, _ := search.Samples(ctx, domain.SampleQuery{BPMMin: ip(120), BPMMax: ip(130), Limit: 10})
+		assert.Equal(t, []string{"loops/bass/rolling-bass.wav"}, []string{hits[0].Path}, "BPM filter skips one-shots")
+		hits, _, _ = search.Samples(ctx, domain.SampleQuery{BPMMin: ip(170), Limit: 10})
 		assert.Equal(t, []string{"loops/breaks/amen.wav"}, []string{hits[0].Path})
 		hits, _, _ = search.Samples(ctx, domain.SampleQuery{PackageID: &liquid, ContentType: "loop", Limit: 10})
 		assert.Len(t, hits, 1)
