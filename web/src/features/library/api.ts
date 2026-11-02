@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api';
+import { useAuth } from '@/features/auth/AuthContext';
 import { queryKeys } from '@/shared/api/queryKeys';
 import type { Library, Lockfile } from '@/shared/types/domain';
 import { useToast } from '@/shared/ui/Toast';
+import { HttpApiError } from '@/shared/api/http';
+import { shortDigest } from '@/shared/lib/format';
 
 export function useLibrary() {
-  return useQuery({ queryKey: queryKeys.library, queryFn: () => api.getLibrary() });
+  const { user } = useAuth();
+  return useQuery({ queryKey: queryKeys.library, queryFn: () => api.getLibrary(), enabled: Boolean(user) });
 }
 
 export function useResolve(enabled = true) {
@@ -49,5 +53,44 @@ export function useUpdateItem() {
 }
 
 export function useImportLockfile() {
-  return useLibraryMutation((lf: Lockfile) => api.importLockfile(lf), (lf) => `Imported ${Object.keys(lf.packages).length} packages from lockfile`);
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (lf: Lockfile) => api.importLockfile(lf),
+    onSuccess: (res, lf) => {
+      qc.setQueryData(queryKeys.library, res.library);
+      void qc.invalidateQueries({ queryKey: queryKeys.resolve });
+      toast({ tone: 'success', title: `Imported ${Object.keys(lf.packages).length} packages from lockfile`, description: 'Every entry matched the registry digests.' });
+      for (const w of res.warnings) toast({ tone: 'warning', title: w.message });
+    },
+    onError: (e: Error) => {
+      const first = e instanceof HttpApiError ? e.issues[0]?.message : undefined;
+      toast({ tone: 'error', title: 'Lockfile rejected', description: first ?? e.message });
+    },
+  });
+}
+
+export function useLockfiles(enabled = true) {
+  return useQuery({ queryKey: ['lockfiles'], queryFn: () => api.listLockfiles(), enabled });
+}
+
+export function useSaveLockfile() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: () => api.saveLockfile(),
+    onSuccess: ({ saved }) => {
+      void qc.invalidateQueries({ queryKey: ['lockfiles'] });
+      toast({ tone: 'success', title: 'Lockfile saved', description: shortDigest(saved.contentDigest) });
+    },
+    onError: (e: Error) => toast({ tone: 'error', title: 'Could not export', description: e.message }),
+  });
+}
+
+export function useDeleteLockfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteLockfile(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['lockfiles'] }),
+  });
 }

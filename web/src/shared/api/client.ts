@@ -1,5 +1,7 @@
 import type {
   Artifact,
+  ImportResult,
+  SavedLockfile,
   Library,
   Lockfile,
   Package,
@@ -81,7 +83,14 @@ export interface ApiClient {
   pinVersion(packageId: string, version: string | null): Promise<Library>;
   updateLibraryItem(packageId: string): Promise<Library>;
   resolveLibrary(): Promise<ResolveResult>;
-  importLockfile(lockfile: Lockfile): Promise<Library>;
+  /** Pins the library to a lockfile; the server verifies every entry's manifest digest. */
+  importLockfile(lockfile: Lockfile): Promise<ImportResult>;
+  /** Resolves and stores a lockfile; rejects with resolve_conflicts when the library has conflicts. */
+  saveLockfile(): Promise<{ saved: SavedLockfile; lockfile: Lockfile }>;
+  listLockfiles(): Promise<SavedLockfile[]>;
+  /** Exact stored bytes (they hash to contentDigest). */
+  lockfileContent(id: string): Promise<string>;
+  deleteLockfile(id: string): Promise<void>;
 }
 
 export class ApiError extends Error {

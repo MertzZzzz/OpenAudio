@@ -1,12 +1,13 @@
 import type { ApiClient, DiscoverFeed } from './client';
 import { ApiError } from './client';
-import { API_BASE, request } from './http';
+import { API_BASE, getAccessToken, request, requestRaw } from './http';
 import { taxonomyTerms } from './mock/taxonomy';
-import { resolve } from './mock/resolver';
 import type {
   Artifact,
   Library,
-  LibraryItem,
+  Lockfile,
+  ResolveResult,
+  SavedLockfile,
   Package,
   PackageKind,
   Page,
@@ -18,7 +19,6 @@ import type {
   SearchParams,
   ValidationIssue,
 } from '@/shared/types/domain';
-import { compare } from '@/shared/lib/semver';
 
 /* ------------------------------------------------------------ server DTOs */
 
@@ -181,30 +181,26 @@ export function searchQuery(p: SearchParams, paging: boolean): string {
   return qs.toString();
 }
 
-const pkgPath = (publisher: string, slug: string) => `/packages/${encodeURIComponent(publisher)}/${encodeURIComponent(slug)}`;
-
-/* ---------------------------------------------------------- local library */
-
-// Libraries move server-side in Phase 6; until then they live in localStorage.
-const LIBRARY_KEY = 'openaudio.library.v1';
-
-function loadLibrary(): Library {
+/** The "sub" claim of the current access token (no verification — only used as a cache key). */
+function tokenSubject(): string | null {
+  const t = getAccessToken();
+  const payload = t?.split('.')[1];
+  if (!payload) return null;
   try {
-    const raw = localStorage.getItem(LIBRARY_KEY);
-    if (raw) return JSON.parse(raw) as Library;
+    return (JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { sub?: string }).sub ?? null;
   } catch {
-    /* ignore */
+    return null;
   }
-  return { id: 'local', name: 'My Library', items: [] };
 }
 
-function saveLibrary(lib: Library): Library {
-  try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify(lib));
-  } catch {
-    /* ignore */
-  }
-  return lib;
+const pkgPath = (publisher: string, slug: string) => `/packages/${encodeURIComponent(publisher)}/${encodeURIComponent(slug)}`;
+
+interface LibraryItemDTO {
+  packageId: string;
+  package: PackageDTO;
+  pinnedVersion: string | null;
+  installedVersion: string | null;
+  addedAt: string;
 }
 
 /* ---------------------------------------------------------------- client */
@@ -216,18 +212,39 @@ export function createHttpClient(): ApiClient {
   const manifestOf = async (publisher: string, slug: string, version: string): Promise<Record<string, unknown>> =>
     request<Record<string, unknown>>(`${pkgPath(publisher, slug)}/versions/${encodeURIComponent(version)}/manifest`);
 
-  const libraryPackages = async (lib: Library) => {
-    const pkgs = await Promise.all(lib.items.map((i) => getPackageByIdSafe(i.packageId)));
-    return pkgs.filter((p): p is Package => p !== null);
-  };
-
-  async function getPackageByIdSafe(id: string): Promise<Package | null> {
-    try {
-      const [pub, slug] = splitId(id);
-      return await getPackage(pub, slug);
-    } catch {
-      return null;
+  // Libraries are per user; the UI works on the first one (the server creates "My Library" on demand).
+  let defaultLibrary: Promise<{ id: string; name: string }> | null = null;
+  let libraryOwner: string | null = null;
+  const library = () => {
+    // Cache per signed-in user (the JWT subject), so switching accounts in one tab is safe.
+    const owner = tokenSubject();
+    if (owner !== libraryOwner) {
+      defaultLibrary = null;
+      libraryOwner = owner;
     }
+    defaultLibrary ??= request<{ id: string; name: string }[]>('/libraries')
+      .then((libs) => libs[0]!)
+      .catch((e: unknown) => {
+        defaultLibrary = null;
+        throw e;
+      });
+    return defaultLibrary;
+  };
+  const libPath = async (suffix = '') => `/libraries/${(await library()).id}${suffix}`;
+
+  async function getLibrary(): Promise<Library> {
+    const lib = await library();
+    const items = await request<LibraryItemDTO[]>(`/libraries/${lib.id}/items`);
+    return {
+      id: lib.id,
+      name: lib.name,
+      items: items.map((i) => ({
+        packageId: i.packageId,
+        pinnedVersion: i.pinnedVersion,
+        installedVersion: i.installedVersion ?? i.package.latestVersion ?? '0.0.0',
+        addedAt: i.addedAt,
+      })),
+    };
   }
 
   return {
@@ -359,74 +376,52 @@ export function createHttpClient(): ApiClient {
       return toRelease(await request<ReleaseDTO>(`${pkgPath(publisher, slug)}/releases/${encodeURIComponent(version)}/yank`, { method: 'POST' }));
     },
 
-    /* ------------------------------------- library (local until Phase 6) */
+    /* ------------------------------------------------------- library */
 
-    getLibrary: () => Promise.resolve(loadLibrary()),
+    getLibrary,
 
     async addToLibrary(packageId, pinnedVersion = null) {
-      const lib = loadLibrary();
-      if (!lib.items.some((i) => i.packageId === packageId)) {
-        const p = await this.getPackageById(packageId);
-        const item: LibraryItem = { packageId, pinnedVersion, installedVersion: pinnedVersion ?? p.latestVersion, addedAt: new Date().toISOString() };
-        lib.items.push(item);
-      }
-      return saveLibrary(lib);
+      await request(await libPath('/items'), { method: 'POST', body: { packageId, ...(pinnedVersion ? { pinnedVersion } : {}) } });
+      return getLibrary();
     },
 
     async removeFromLibrary(packageId) {
-      const lib = loadLibrary();
-      lib.items = lib.items.filter((i) => i.packageId !== packageId);
-      return saveLibrary(lib);
+      await request(await libPath(`/items/${encodeURIComponent(packageId)}`), { method: 'DELETE' });
+      return getLibrary();
     },
 
     async pinVersion(packageId, version) {
-      const lib = loadLibrary();
-      const item = lib.items.find((i) => i.packageId === packageId);
-      if (item) {
-        item.pinnedVersion = version;
-        if (version) item.installedVersion = version;
-      }
-      return saveLibrary(lib);
+      await request(await libPath(`/items/${encodeURIComponent(packageId)}`), { method: 'PATCH', body: { pinnedVersion: version } });
+      return getLibrary();
     },
 
     async updateLibraryItem(packageId) {
-      const lib = loadLibrary();
-      const item = lib.items.find((i) => i.packageId === packageId);
-      if (item && !item.pinnedVersion) item.installedVersion = (await this.getPackageById(packageId)).latestVersion;
-      return saveLibrary(lib);
+      await request(await libPath(`/items/${encodeURIComponent(packageId)}`), { method: 'PATCH', body: { upgrade: true } });
+      return getLibrary();
     },
 
     async resolveLibrary() {
-      const lib = loadLibrary();
-      // Fetch the library's packages plus their dependencies (one level per round).
-      const pkgs = new Map((await libraryPackages(lib)).map((p) => [p.id, p]));
-      for (let round = 0; round < 5; round += 1) {
-        const missing = [...pkgs.values()].flatMap((p) => p.dependencies.map((d) => d.packageId)).filter((id) => !pkgs.has(id));
-        if (!missing.length) break;
-        for (const p of await Promise.all(missing.map(getPackageByIdSafe))) if (p) pkgs.set(p.id, p);
-      }
-      const releases: Record<string, Release[]> = {};
-      await Promise.all(
-        [...pkgs.values()].map(async (p) => {
-          releases[p.id] = (await listVersions(p.publisher.slug, p.slug)).sort((a, b) => compare(b.version, a.version));
-        }),
-      );
-      return resolve({ library: lib, packages: [...pkgs.values()], releases });
+      return request<ResolveResult>(await libPath('/resolve'), { method: 'POST' });
     },
 
     async importLockfile(lockfile) {
-      const lib = loadLibrary();
-      for (const entry of Object.values(lockfile.packages)) {
-        const existing = lib.items.find((i) => i.packageId === entry.id);
-        if (existing) {
-          existing.pinnedVersion = entry.version;
-          existing.installedVersion = entry.version;
-        } else {
-          lib.items.push({ packageId: entry.id, pinnedVersion: entry.version, installedVersion: entry.version, addedAt: new Date().toISOString() });
-        }
-      }
-      return saveLibrary(lib);
+      const res = await request<{ pinned: number; warnings: ValidationIssue[] }>(await libPath('/import'), { method: 'POST', body: { lockfile } });
+      return { library: await getLibrary(), warnings: res.warnings };
     },
+
+    async saveLockfile() {
+      const res = await request<SavedLockfile & { lockfile: Lockfile }>(await libPath('/lockfiles'), { method: 'POST' });
+      const { lockfile, ...saved } = res;
+      return { saved, lockfile };
+    },
+
+    listLockfiles: () => request<SavedLockfile[]>('/lockfiles'),
+
+    async lockfileContent(id) {
+      return (await requestRaw(`/lockfiles/${encodeURIComponent(id)}`)).text();
+    },
+
+    deleteLockfile: (id) => request<void>(`/lockfiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   };
 }
 

@@ -56,3 +56,30 @@ describe('mock API client', () => {
     expect((await client().getLibrary()).items.some((i) => i.packageId === 'org.lattice.plate-verb')).toBe(true);
   });
 });
+
+describe('lockfiles (mock mirrors the API rules)', () => {
+  it('exports, lists and re-imports with integrity checks', async () => {
+    const c = createMockClient({ latencyMs: 0 });
+    await c.pinVersion('org.tapeworks.warm-tape-drums', null); // clear the seeded conflict
+    await c.updateLibraryItem('org.tapeworks.warm-tape-drums');
+    const { saved, lockfile } = await c.saveLockfile();
+    expect((await c.listLockfiles()).map((l) => l.id)).toEqual([saved.id]);
+    expect(JSON.parse(await c.lockfileContent(saved.id))).toEqual(lockfile);
+    expect(Object.values(lockfile.packages).some((e) => e.direct === false)).toBe(true);
+
+    const res = await c.importLockfile(lockfile);
+    expect(res.library.items.length).toBeGreaterThan(0);
+
+    const tampered = structuredClone(lockfile);
+    const first = Object.keys(tampered.packages)[0]!;
+    tampered.packages[first]!.manifestDigest = 'sha256:' + '0'.repeat(64);
+    await expect(c.importLockfile(tampered)).rejects.toMatchObject({ code: 'lockfile_invalid' });
+
+    await c.deleteLockfile(saved.id);
+    expect(await c.listLockfiles()).toEqual([]);
+  });
+
+  it('refuses to export while the library has conflicts', async () => {
+    await expect(createMockClient({ latencyMs: 0 }).saveLockfile()).rejects.toMatchObject({ code: 'resolve_conflicts' });
+  });
+});

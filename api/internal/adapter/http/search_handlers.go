@@ -253,10 +253,23 @@ func (a *API) taxonomy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"taxonomyVersion": version, "terms": out})
 }
 
-// downloadFile redirects to a presigned URL and counts the download.
+// downloadFile redirects to a presigned URL and counts the download; ?preview=1 serves the file
+// inline for playback without counting it.
 func (a *API) downloadFile(w http.ResponseWriter, r *http.Request) {
 	pub, slug := pathPkg(r)
-	u, err := a.pub.DownloadURL(r.Context(), actor(r), pub, slug, chi.URLParam(r, "version"), chi.URLParam(r, "*"))
+	preview := r.URL.Query().Get("preview") == "1"
+	u, err := a.pub.DownloadURL(r.Context(), actor(r), pub, slug, chi.URLParam(r, "version"), chi.URLParam(r, "*"), preview)
+	if err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, u, http.StatusFound)
+}
+
+// packagePreview redirects to playable audio of the latest release (used by play buttons).
+func (a *API) packagePreview(w http.ResponseWriter, r *http.Request) {
+	pub, slug := pathPkg(r)
+	u, err := a.pub.PreviewURL(r.Context(), actor(r), pub, slug)
 	if err != nil {
 		a.writeError(w, r, err)
 		return

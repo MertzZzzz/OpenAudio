@@ -1,4 +1,6 @@
 import type { Package, Sample } from '@/shared/types/domain';
+import { API_BASE } from '@/shared/api/http';
+import { apiMode } from '@/shared/lib/apiMode';
 import type { PlayerTrack } from '@/shared/player/PlayerContext';
 
 export function packageTrack(p: Package): PlayerTrack {
@@ -7,7 +9,8 @@ export function packageTrack(p: Package): PlayerTrack {
     title: p.name,
     subtitle: `${p.publisher.name} · demo`,
     durationSec: 30,
-    previewUrl: `mock://previews/${p.id}/demo.mp3`,
+    // With the API: redirect to playable audio of the latest release (not counted as a download).
+    previewUrl: apiMode === 'http' ? `${API_BASE}/packages/${p.publisher.slug}/${p.slug}/preview` : `mock://previews/${p.id}/demo.mp3`,
     hue: p.coverHue,
   };
 }
@@ -18,6 +21,6 @@ export function sampleTrack(s: Sample, packageName?: string): PlayerTrack {
     title: s.name,
     subtitle: packageName ?? s.file,
     durationSec: Math.max(1, s.durationSec),
-    previewUrl: s.previewUrl,
+    previewUrl: s.previewUrl || (s.downloadUrl ? `${s.downloadUrl}?preview=1` : ''),
   };
 }

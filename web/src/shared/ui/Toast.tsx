@@ -54,7 +54,7 @@ export function ToastProvider({ children, durationMs = 4000 }: { children: React
             {icons[t.tone]}
             <div className="flex-1">
               <p className="text-body font-medium text-fg">{t.title}</p>
-              {t.description && <p className="mt-0.5 text-caption text-fg-muted">{t.description}</p>}
+              {t.description && <p className="mt-0.5 text-caption text-fg-muted [overflow-wrap:anywhere]">{t.description}</p>}
             </div>
             <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss notification" className="text-fg-subtle hover:text-fg">
               <X className="h-4 w-4" />

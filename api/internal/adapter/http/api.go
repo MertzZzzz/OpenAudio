@@ -150,6 +150,7 @@ func NewHandler(o Options) http.Handler {
 			r.With(a.requireAuth).Post("/releases/{version}/publish", a.publishRelease)
 			r.With(a.requireAuth).Post("/releases/{version}/yank", a.yankRelease)
 			r.Get("/releases/{version}/files/*", a.downloadFile)
+			r.Get("/preview", a.packagePreview)
 		})
 
 		// Search

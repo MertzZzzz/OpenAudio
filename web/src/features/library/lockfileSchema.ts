@@ -10,6 +10,9 @@ export const lockfileSchema = z.object({
       version: z.string().regex(/^\d+\.\d+\.\d+$/),
       manifestDigest: z.string().regex(/^sha256:[0-9a-f]+$/),
       resolved: z.string(),
+      direct: z.boolean().optional(),
+      yanked: z.boolean().optional(),
+      dependencies: z.record(z.string()).optional(),
     }),
   ),
 });

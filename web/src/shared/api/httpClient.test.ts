@@ -108,3 +108,23 @@ describe('server-side search', () => {
     expect(s).toMatchObject({ bpm: undefined, durationSec: 0, packageName: 'Kit', key: { tonic: 'F', mode: 'minor' }, downloadUrl: '/api/v1/packages/acme/kit/releases/1.0.0/files/a.wav' });
   });
 });
+
+describe('library over HTTP', () => {
+  it('uses the default library and maps items; import returns warnings', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      calls.push(`${init.method} ${url}`);
+      if (url === '/api/v1/libraries') return Promise.resolve(json(200, [{ id: 'L1', name: 'My Library', createdAt: '' }]));
+      if (url === '/api/v1/libraries/L1/items')
+        return Promise.resolve(json(200, [{ packageId: 'acme.kit', package: { ...dto, latestVersion: '1.2.0' }, pinnedVersion: null, installedVersion: null, addedAt: 't' }]));
+      if (url === '/api/v1/libraries/L1/import') return Promise.resolve(json(200, { pinned: 1, warnings: [{ severity: 'warning', path: 'x', message: 'acme.kit@1.0.0 is yanked' }] }));
+      return Promise.resolve(json(404, { code: 'nope', message: url }));
+    });
+    const c = createHttpClient();
+    const lib = await c.getLibrary();
+    expect(lib).toEqual({ id: 'L1', name: 'My Library', items: [{ packageId: 'acme.kit', pinnedVersion: null, installedVersion: '1.2.0', addedAt: 't' }] });
+    const res = await c.importLockfile({ lockfileVersion: 1, name: 'x', generatedAt: '', packages: {} });
+    expect(res.warnings[0]!.message).toContain('yanked');
+    expect(calls.filter((x) => x === 'GET /api/v1/libraries')).toHaveLength(1);
+  });
+});

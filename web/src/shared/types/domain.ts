@@ -202,6 +202,17 @@ export interface LockfileEntry {
   version: string;
   manifestDigest: string;
   resolved: string;
+  /** In the library itself (false = pulled in as a dependency). */
+  direct?: boolean;
+  yanked?: boolean;
+  dependencies?: Record<string, string>;
+}
+
+export interface SavedLockfile {
+  id: string;
+  name: string;
+  contentDigest: string;
+  createdAt: string;
 }
 
 export interface Lockfile {
@@ -213,6 +224,7 @@ export interface Lockfile {
 
 export interface ResolveConflict {
   packageId: string;
+  reason?: 'no_matching_version' | 'package_not_found';
   requestedBy: { packageId: string; range: string }[];
   candidates: string[];
 }
@@ -220,6 +232,12 @@ export interface ResolveConflict {
 export interface ResolveResult {
   lockfile: Lockfile;
   conflicts: ResolveConflict[];
+  warnings?: ValidationIssue[];
+}
+
+export interface ImportResult {
+  library: Library;
+  warnings: ValidationIssue[];
 }
 
 export interface PublisherMember {

@@ -1,6 +1,7 @@
 import type { ApiClient } from '@/shared/api/client';
 import { ApiError } from '@/shared/api/client';
-import type { Library, Package, Release } from '@/shared/types/domain';
+import type { Library, Package, Release, SavedLockfile, ValidationIssue } from '@/shared/types/domain';
+import { HttpApiError } from '@/shared/api/http';
 import { buildFacets, searchPage } from '@/shared/api/catalogQuery';
 import { compare } from '@/shared/lib/semver';
 import { keyToSlug } from '@/shared/lib/format';
@@ -31,6 +32,7 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
     releases: clone(seedReleases),
     library: clone(initialLibrary) as Library,
     members: clone(seedMembers),
+    lockfiles: [] as (SavedLockfile & { content: string })[],
   };
 
   const delay = <T>(value: T): Promise<T> =>
@@ -313,18 +315,62 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
     },
 
     importLockfile(lockfile) {
-      for (const entry of Object.values(lockfile.packages)) {
-        const known = state.packages.some((p) => p.id === entry.id);
-        if (!known) continue;
-        const existing = state.library.items.find((i) => i.packageId === entry.id);
+      // Same rules as the API: every entry must exist with the same manifest digest, else nothing is applied.
+      const issues: ValidationIssue[] = [];
+      const warnings: ValidationIssue[] = [];
+      const pins: { id: string; version: string }[] = [];
+      for (const [key, entry] of Object.entries(lockfile.packages)) {
+        const id = entry.id || key;
+        const rel = state.releases[id]?.find((r) => r.version === entry.version && r.status !== 'draft');
+        if (!rel) {
+          issues.push({ severity: 'error', path: `lockfile.packages.${key}`, message: `${id}@${entry.version} does not exist` });
+          continue;
+        }
+        if (rel.manifestDigest !== entry.manifestDigest) {
+          issues.push({ severity: 'error', path: `lockfile.packages.${key}.manifestDigest`, message: `integrity check failed for ${id}@${entry.version}` });
+          continue;
+        }
+        if (rel.status === 'yanked') warnings.push({ severity: 'warning', path: `lockfile.packages.${key}`, message: `${id}@${entry.version} is yanked` });
+        if (entry.direct !== false) pins.push({ id, version: entry.version });
+      }
+      if (issues.length) {
+        return Promise.reject(new HttpApiError(422, 'lockfile_invalid', 'the lockfile does not match the registry', issues));
+      }
+      for (const { id, version } of pins) {
+        const existing = state.library.items.find((i) => i.packageId === id);
         if (existing) {
-          existing.pinnedVersion = entry.version;
-          existing.installedVersion = entry.version;
+          existing.pinnedVersion = version;
+          existing.installedVersion = version;
         } else {
-          state.library.items.push({ packageId: entry.id, pinnedVersion: entry.version, installedVersion: entry.version, addedAt: new Date().toISOString() });
+          state.library.items.push({ packageId: id, pinnedVersion: version, installedVersion: version, addedAt: new Date().toISOString() });
         }
       }
-      return delay(state.library);
+      return delay({ library: state.library, warnings });
+    },
+
+    saveLockfile() {
+      const { lockfile, conflicts } = resolve({ library: state.library, packages: state.packages, releases: state.releases });
+      if (conflicts.length) {
+        return Promise.reject(new HttpApiError(409, 'resolve_conflicts', 'resolve the version conflicts before exporting a lockfile'));
+      }
+      const content = JSON.stringify(lockfile);
+      const saved = { id: crypto.randomUUID(), name: lockfile.name, contentDigest: fakeDigest(content), createdAt: new Date().toISOString() };
+      state.lockfiles.unshift({ ...saved, content });
+      return delay({ saved, lockfile });
+    },
+
+    listLockfiles() {
+      return delay(state.lockfiles.map(({ content: _content, ...rest }) => rest));
+    },
+
+    lockfileContent(id) {
+      const l = state.lockfiles.find((x) => x.id === id);
+      return l ? delay(l.content) : Promise.reject(new ApiError(404, 'lockfile_not_found', 'lockfile not found'));
+    },
+
+    deleteLockfile(id) {
+      state.lockfiles = state.lockfiles.filter((x) => x.id !== id);
+      return delay(undefined);
     },
   };
 }

@@ -50,9 +50,15 @@ export function PlayerBar() {
             className="w-24 accent-[rgb(var(--oa-primary))]"
           />
         </div>
-        <span className="hidden rounded border border-border px-1.5 py-0.5 text-caption text-fg-subtle xl:inline" title="Real audio previews arrive with the backend">
-          preview placeholder
-        </span>
+        {p.error ? (
+          <span role="alert" className="hidden text-caption text-danger xl:inline">{p.error}</span>
+        ) : (
+          !p.real && (
+            <span className="hidden rounded border border-border px-1.5 py-0.5 text-caption text-fg-subtle xl:inline" title="Offline demo: no audio files">
+              simulated preview
+            </span>
+          )
+        )}
         <button type="button" onClick={p.stop} aria-label="Close player" className="rounded p-1 text-fg-muted hover:text-fg">
           <X className="h-4 w-4" />
         </button>

@@ -381,8 +381,8 @@ func (s *Service) Yank(ctx context.Context, actor Actor, publisherSlug, slug, ve
 /* ------------------------------------------------------------- download */
 
 // DownloadURL returns a short-lived presigned URL for one artifact of a published (or yanked)
-// release and counts the download. Manifest downloads are not counted.
-func (s *Service) DownloadURL(ctx context.Context, actor Actor, publisherSlug, slug, version, artifactPath string) (string, error) {
+// release and counts the download. Manifest downloads and previews (inline playback) are not counted.
+func (s *Service) DownloadURL(ctx context.Context, actor Actor, publisherSlug, slug, version, artifactPath string, preview bool) (string, error) {
 	v, r, err := s.visibleRelease(ctx, actor, publisherSlug, slug, version)
 	if err != nil {
 		return "", err
@@ -398,11 +398,15 @@ func (s *Service) DownloadURL(ctx context.Context, actor Actor, publisherSlug, s
 		if a.Path != artifactPath {
 			continue
 		}
-		u, err := s.Blobs.PresignGet(ctx, a.StorageKey, s.DownloadTTL, path.Base(a.Path))
+		filename := path.Base(a.Path)
+		if preview {
+			filename = "" // inline, for the browser's audio element
+		}
+		u, err := s.Blobs.PresignGet(ctx, a.StorageKey, s.DownloadTTL, filename)
 		if err != nil {
 			return "", internal(err)
 		}
-		if a.Kind != "manifest" {
+		if a.Kind != "manifest" && !preview {
 			if err := s.Packages.CountDownload(ctx, v.ID); err != nil {
 				s.Logger.WarnContext(ctx, "count download", "package", v.CanonicalID(), "err", err)
 			}
@@ -410,4 +414,43 @@ func (s *Service) DownloadURL(ctx context.Context, actor Actor, publisherSlug, s
 		return u, nil
 	}
 	return "", domain.NotFound("artifact_not_found", "no such file in this release")
+}
+
+// PreviewURL returns a presigned URL for audio that represents the package: a "preview" artifact of
+// the latest release if there is one, otherwise its first sample. Previews are not counted as downloads.
+func (s *Service) PreviewURL(ctx context.Context, actor Actor, publisherSlug, slug string) (string, error) {
+	v, _, err := s.GetPackage(ctx, actor, publisherSlug, slug)
+	if err != nil {
+		return "", err
+	}
+	if v.LatestVersion == nil {
+		return "", domain.NotFound("preview_not_found", "this package has no published audio")
+	}
+	r, err := s.release(ctx, v.ID, *v.LatestVersion)
+	if err != nil {
+		return "", err
+	}
+	arts, err := s.Releases.Artifacts(ctx, r.ID)
+	if err != nil {
+		return "", internal(err)
+	}
+	var pick *domain.Artifact
+	for i := range arts {
+		a := &arts[i]
+		if a.Kind == "preview" {
+			pick = a
+			break
+		}
+		if a.Kind == "sample" && pick == nil {
+			pick = a
+		}
+	}
+	if pick == nil {
+		return "", domain.NotFound("preview_not_found", "this package has no published audio")
+	}
+	u, err := s.Blobs.PresignGet(ctx, pick.StorageKey, s.DownloadTTL, "")
+	if err != nil {
+		return "", internal(err)
+	}
+	return u, nil
 }

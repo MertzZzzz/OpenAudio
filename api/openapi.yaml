@@ -949,6 +949,19 @@ paths:
                         label: { type: string }
                         parent: { type: string }
                         aliases: { type: array, items: { type: string } }
+  /packages/{publisher}/{slug}/preview:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [packages]
+      summary: Playable audio for the package (redirect)
+      description: Redirects to a `preview` artifact of the latest release, or its first sample. Not counted as a download.
+      operationId: packagePreview
+      security: []
+      responses:
+        '302': { description: Redirect to a short-lived presigned URL }
+        '404': { $ref: '#/components/responses/Error' }
   /packages/{publisher}/{slug}/releases/{version}/files/{path}:
     parameters:
       - $ref: '#/components/parameters/Publisher'
@@ -958,8 +971,11 @@ paths:
     get:
       tags: [releases]
       summary: Download one artifact (counts a download, redirects to a presigned URL)
+      description: With `preview=1` the file is served inline for playback and not counted.
       operationId: downloadFile
       security: []
+      parameters:
+        - { name: preview, in: query, schema: { type: string, enum: ['1'] } }
       responses:
         '302': { description: Redirect to a short-lived presigned URL }
         '404': { $ref: '#/components/responses/Error' }

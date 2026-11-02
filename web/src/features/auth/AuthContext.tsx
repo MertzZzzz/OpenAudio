@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { setSessionExpiredHandler } from '@/shared/api/http';
 import { httpAuthApi, type AuthApi } from './authApi';
 import { createMockAuthApi } from './mockAuthApi';
@@ -34,11 +35,17 @@ export function AuthProvider({ children, api }: { children: ReactNode; api?: Aut
   const [status, setStatus] = useState<Status>('loading');
   const [signedOut, setSignedOut] = useState(false);
 
+  const qc = useQueryClient();
+  const lastUserId = useRef<string | null | undefined>(undefined);
   const apply = useCallback((u: AuthUser | null) => {
     if (u) setSignedOut(false);
+    // Per-user data (library, lockfiles, publishers) must not leak between accounts.
+    const id = u?.id ?? null;
+    if (lastUserId.current !== undefined && lastUserId.current !== id) qc.removeQueries();
+    lastUserId.current = id;
     setUser(u);
     setStatus(u ? 'authenticated' : 'anonymous');
-  }, []);
+  }, [qc]);
 
   useEffect(() => {
     let cancelled = false;

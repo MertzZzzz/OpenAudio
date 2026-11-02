@@ -100,6 +100,5 @@ curl -s -X POST $API/packages/acme/kit/releases/1.0.0/publish -H "Authorization:
 ## Not yet
 
 - Background preview generation (spec §8) and audio analysis.
-- Server-side libraries and lockfiles (Phase 6): the web app keeps the library in `localStorage` meanwhile.
 - Cleanup of abandoned uploads (`uploads/` objects of sessions never completed).
 - Invitations for people without an account (members must sign up first).

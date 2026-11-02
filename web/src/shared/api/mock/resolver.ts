@@ -53,6 +53,7 @@ export function resolve({ library, packages, releases, now = new Date() }: Resol
     const pkg = byId.get(id);
     entries[id] = {
       id,
+      direct: library.items.some((i) => i.packageId === id),
       version: chosen,
       manifestDigest: rel.manifestDigest,
       resolved: pkg ? `openaudio://${pkg.publisher.slug}/${pkg.slug}@${chosen}` : `openaudio://${id}@${chosen}`,

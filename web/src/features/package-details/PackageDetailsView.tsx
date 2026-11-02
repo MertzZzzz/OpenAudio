@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/features/auth/AuthContext';
 import { BadgeCheck, Check, Copy, Download, FileJson, Library, PackageX, Plus, Star } from 'lucide-react';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Badge } from '@/shared/ui/Badge';
@@ -44,6 +45,10 @@ export function PackageDetailsView({ publisher, slug }: { publisher: string; slu
   const [sp, setSp] = useSearchParams();
   const [tab, setTab] = useState<Tab>('overview');
   const [installOpen, setInstallOpen] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const signIn = () => navigate(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
 
   const pkg = pkgQ.data;
   const published = useMemo(() => (versionsQ.data ?? []).filter((r) => r.status === 'published'), [versionsQ.data]);
@@ -139,7 +144,7 @@ export function PackageDetailsView({ publisher, slug }: { publisher: string; slu
               loading={add.isPending}
               disabled={inLibrary}
               leftIcon={inLibrary ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              onClick={() => add.mutate({ packageId: pkg.id, name: pkg.name, version: sp.get('v') })}
+              onClick={() => (user ? add.mutate({ packageId: pkg.id, name: pkg.name, version: sp.get('v') }) : signIn())}
             >
               {inLibrary ? 'In library' : 'Add to library'}
             </Button>
@@ -225,8 +230,9 @@ export function PackageDetailsView({ publisher, slug }: { publisher: string; slu
               leftIcon={<Library className="h-4 w-4" />}
               disabled={inLibrary}
               onClick={() => {
-                add.mutate({ packageId: pkg.id, name: pkg.name, version });
                 setInstallOpen(false);
+                if (user) add.mutate({ packageId: pkg.id, name: pkg.name, version });
+                else signIn();
               }}
             >
               {inLibrary ? 'Already in library' : `Add v${version} to library`}

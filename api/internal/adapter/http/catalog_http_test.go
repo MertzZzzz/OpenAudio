@@ -140,8 +140,14 @@ func TestPublishingFlowOverHTTP(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Location"), "filename=kick.wav")
 	assert.Equal(t, http.StatusFound, r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/manifest.json"}).Code)
 	assert.Equal(t, http.StatusNotFound, r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/nope.wav"}).Code)
+	w = r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/one-shots/kick.wav?preview=1"})
+	require.Equal(t, http.StatusFound, w.Code)
+	assert.NotContains(t, w.Header().Get("Location"), "filename=kick.wav", "previews play inline")
+	w = r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/preview"})
+	require.Equal(t, http.StatusFound, w.Code)
+	assert.Contains(t, w.Header().Get("Location"), "https://blobs.test/blobs/")
 	w = r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit"})
-	assert.EqualValues(t, 1, decode(t, w)["downloads"])
+	assert.EqualValues(t, 1, decode(t, w)["downloads"], "previews are not counted")
 
 	// Immutability over HTTP.
 	w = r.do(t, req{method: "PUT", path: "/api/v1/packages/acme/kit/releases/1.0.0", bearer: owner, body: map[string]any{"changelog": "edit"}})

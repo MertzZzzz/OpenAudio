@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileUp, Library as LibraryIcon, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileUp, Library as LibraryIcon, RefreshCw, Trash2 } from 'lucide-react';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { Table, TBody, TH, THead } from '@/shared/ui/Table';
@@ -7,10 +7,11 @@ import { Skeleton } from '@/shared/ui/Skeleton';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Badge } from '@/shared/ui/Badge';
 import { useToast } from '@/shared/ui/Toast';
-import { downloadJson } from '@/shared/lib/download';
-import { shortDigest } from '@/shared/lib/format';
+import { downloadText } from '@/shared/lib/download';
+import { formatDate, shortDigest } from '@/shared/lib/format';
 import { maxSatisfying } from '@/shared/lib/semver';
-import { useImportLockfile, useLibrary, usePinVersion, useResolve } from './api';
+import { useDeleteLockfile, useImportLockfile, useLibrary, useLockfiles, usePinVersion, useResolve, useSaveLockfile } from './api';
+import { api } from '@/shared/api';
 import { LibraryRow } from './LibraryRow';
 import { lockfileSchema } from './lockfileSchema';
 
@@ -24,6 +25,17 @@ export function LibraryView() {
 
   const items = library.data?.items ?? [];
   const conflicts = resolve.data?.conflicts ?? [];
+  const warnings = resolve.data?.warnings ?? [];
+  const save = useSaveLockfile();
+  const saved = useLockfiles();
+  const removeLockfile = useDeleteLockfile();
+  const downloadSaved = async (id: string) => {
+    try {
+      downloadText('openaudio.lock.json', await api.lockfileContent(id));
+    } catch (e) {
+      toast({ tone: 'error', title: 'Download failed', description: e instanceof Error ? e.message : undefined });
+    }
+  };
   const lockfile = resolve.data?.lockfile;
   const libraryIds = new Set(items.map((i) => i.packageId));
 
@@ -66,11 +78,12 @@ export function LibraryView() {
           <Button
             leftIcon={<Download className="h-4 w-4" />}
             disabled={!lockfile || conflicts.length > 0}
+            loading={save.isPending}
             title={conflicts.length ? 'Resolve conflicts before exporting' : undefined}
-            onClick={() => {
-              if (!lockfile) return;
-              downloadJson('openaudio.lock.json', lockfile);
-              toast({ tone: 'success', title: 'Lockfile exported', description: `${Object.keys(lockfile.packages).length} packages with exact versions and digests` });
+            onClick={async () => {
+              // Saved on the server, then downloaded byte-for-byte so the file matches its digest.
+              const res = await save.mutateAsync().catch(() => null);
+              if (res) await downloadSaved(res.saved.id);
             }}
           >
             Export lockfile
@@ -145,6 +158,16 @@ export function LibraryView() {
         </Card>
       )}
 
+      {warnings.length > 0 && (
+        <ul className="space-y-1 rounded-lg border border-warning/40 bg-warning/10 p-4 text-body" aria-label="Resolver warnings">
+          {warnings.map((w) => (
+            <li key={w.path + w.message} className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden /> {w.message}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -182,6 +205,38 @@ export function LibraryView() {
                 <pre className="mt-2 max-h-80 overflow-auto rounded border border-border bg-surface-sunken p-4 font-mono text-caption text-fg-muted scrollbar-thin">{JSON.stringify(lockfile, null, 2)}</pre>
               </details>
             </>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved lockfiles</CardTitle>
+        </CardHeader>
+        <CardBody className="p-0">
+          {saved.isLoading ? (
+            <Skeleton className="m-6 h-16" />
+          ) : !saved.data?.length ? (
+            <p className="px-6 py-4 text-caption text-fg-subtle">Export a lockfile to keep a reproducible snapshot of this library.</p>
+          ) : (
+            <ul className="divide-y divide-border" aria-label="Saved lockfiles">
+              {saved.data.map((l) => (
+                <li key={l.id} className="flex flex-wrap items-center gap-3 px-6 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{l.name}</p>
+                    <p className="font-mono text-caption text-fg-subtle" title={l.contentDigest}>
+                      {formatDate(l.createdAt)} · {shortDigest(l.contentDigest)}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={() => void downloadSaved(l.id)}>
+                    Download
+                  </Button>
+                  <Button size="icon" variant="ghost" aria-label={`Delete lockfile from ${formatDate(l.createdAt)}`} onClick={() => removeLockfile.mutate(l.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
           )}
         </CardBody>
       </Card>
