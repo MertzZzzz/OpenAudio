@@ -27,6 +27,9 @@ type Catalog struct {
 	uploads    map[uuid.UUID]domain.Upload
 	parts      map[uuid.UUID]map[int]domain.UploadPart
 	downloads  map[uuid.UUID]int64
+	libs       map[uuid.UUID]domain.Library
+	items      map[uuid.UUID]map[uuid.UUID]libraryRow
+	locks      map[uuid.UUID]domain.LockfileRecord
 }
 
 func NewCatalog(users *Store) *Catalog {
@@ -35,6 +38,7 @@ func NewCatalog(users *Store) *Catalog {
 		packages: map[uuid.UUID]domain.Package{}, releases: map[uuid.UUID]domain.Release{}, artifacts: map[uuid.UUID][]domain.Artifact{},
 		terms: map[uuid.UUID][]domain.TaxonomyTerm{}, uploads: map[uuid.UUID]domain.Upload{}, parts: map[uuid.UUID]map[int]domain.UploadPart{},
 		downloads: map[uuid.UUID]int64{},
+		libs:      map[uuid.UUID]domain.Library{}, items: map[uuid.UUID]map[uuid.UUID]libraryRow{}, locks: map[uuid.UUID]domain.LockfileRecord{},
 	}
 }
 

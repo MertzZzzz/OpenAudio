@@ -8,9 +8,7 @@ package manifest
 
 import (
 	"bytes"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +20,7 @@ import (
 	"golang.org/x/text/message"
 
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
+	"github.com/MertzZzzz/OpenAudio/api/internal/platform/canonjson"
 )
 
 const SchemaID = "openaudio.package/v1"
@@ -213,15 +212,11 @@ func Normalize(m map[string]any, t Target) []domain.Issue {
 // insignificant whitespace, numbers kept verbatim) and returns its sha256 digest.
 // The same bytes are stored in PostgreSQL and in S3, so the digest can be re-checked anywhere.
 func Canonical(m map[string]any) ([]byte, string, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(m); err != nil {
+	b, err := canonjson.Marshal(m)
+	if err != nil {
 		return nil, "", err
 	}
-	b := bytes.TrimRight(buf.Bytes(), "\n")
-	sum := sha256.Sum256(b)
-	return b, "sha256:" + hex.EncodeToString(sum[:]), nil
+	return b, canonjson.Digest(b), nil
 }
 
 // Decode parses canonical bytes into the typed view (no validation).

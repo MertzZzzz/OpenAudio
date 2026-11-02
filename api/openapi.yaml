@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OpenAudio API
-  version: 0.4.0
+  version: 1.0.0
   summary: Catalog, publishing and versioning of open audio packages.
   description: |
     API-first contract for the OpenAudio MVP. The web app's mock layer
@@ -38,6 +38,7 @@ tags:
   - name: search
     description: Full-text and faceted search over packages and samples; controlled vocabulary
   - name: library
+    description: Personal libraries, pinned versions, dependency resolution and lockfiles
 security:
   - bearerAuth: []
 
@@ -967,16 +968,15 @@ paths:
   /libraries:
     get:
       tags: [library]
-      summary: Current user's libraries
+      summary: The caller's libraries (a default "My Library" is created on first use)
       operationId: listLibraries
       responses:
         '200':
           description: Libraries
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Library' }
+              schema: { type: array, items: { $ref: '#/components/schemas/Library' } }
+        '401': { $ref: '#/components/responses/Error' }
     post:
       tags: [library]
       summary: Create a library
@@ -987,33 +987,65 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [name]
               properties:
-                name: { type: string }
+                name: { type: string, minLength: 1, maxLength: 80 }
       responses:
         '201':
           description: Created
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Library' }
+        '409': { $ref: '#/components/responses/Error' }
+  /libraries/{libraryId}:
+    parameters:
+      - $ref: '#/components/parameters/LibraryId'
+    patch:
+      tags: [library]
+      summary: Rename a library
+      operationId: renameLibrary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Library' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [library]
+      summary: Delete a library (saved lockfiles are kept)
+      operationId: deleteLibrary
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
   /libraries/{libraryId}/items:
     parameters:
       - $ref: '#/components/parameters/LibraryId'
     get:
       tags: [library]
-      summary: Items in a library
+      summary: Packages in a library
       operationId: listLibraryItems
       responses:
         '200':
           description: Items
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/LibraryItem' }
+              schema: { type: array, items: { $ref: '#/components/schemas/LibraryItem' } }
+        '404': { $ref: '#/components/responses/Error' }
     post:
       tags: [library]
-      summary: Add or re-pin a package
+      summary: Add a package (optionally pinned to a published version); adding again updates the pin
       operationId: addLibraryItem
       requestBody:
         required: true
@@ -1021,39 +1053,150 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [packageId]
               properties:
-                packageId: { type: string }
-                pinnedVersion: { type: [string, 'null'] }
+                packageId: { type: string, examples: [acme.deep-house-toolkit] }
+                pinnedVersion: { $ref: '#/components/schemas/SemVer' }
       responses:
-        '200':
-          description: Updated library
+        '201':
+          description: Added
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Library' }
+              schema: { $ref: '#/components/schemas/LibraryItem' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /libraries/{libraryId}/items/{packageId}:
     parameters:
       - $ref: '#/components/parameters/LibraryId'
       - { name: packageId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [library]
+      summary: 'Pin (`pinnedVersion: "1.2.0"`), unpin (`pinnedVersion: null`) or upgrade an unpinned item to the latest version (`upgrade: true`)'
+      operationId: updateLibraryItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                pinnedVersion: { type: [string, 'null'] }
+                upgrade: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryItem' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
     delete:
       tags: [library]
       summary: Remove a package from the library
       operationId: removeLibraryItem
       responses:
         '204': { description: Removed }
+        '404': { $ref: '#/components/responses/Error' }
   /libraries/{libraryId}/resolve:
     parameters:
       - $ref: '#/components/parameters/LibraryId'
     post:
       tags: [library]
-      summary: Resolve dependencies and produce a lockfile
+      summary: Resolve versions and dependencies (nothing is stored)
+      description: |
+        Pinned items keep their exact version (even a yanked one, with a warning); unpinned items keep their
+        installed version while it satisfies every range, otherwise the newest published satisfying version is chosen.
+        Dependencies come from the manifest of the chosen version.
       operationId: resolveLibrary
       responses:
         '200':
-          description: Lockfile and conflicts
+          description: Lockfile, conflicts and warnings
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ResolveResult' }
+  /libraries/{libraryId}/lockfiles:
+    parameters:
+      - $ref: '#/components/parameters/LibraryId'
+    post:
+      tags: [library]
+      summary: Resolve and save a lockfile (409 resolve_conflicts when the library has conflicts)
+      operationId: saveLockfile
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedLockfile' }
+        '409': { $ref: '#/components/responses/Error' }
+  /libraries/{libraryId}/import:
+    parameters:
+      - $ref: '#/components/parameters/LibraryId'
+    post:
+      tags: [library]
+      summary: Pin the library to a lockfile's versions
+      description: |
+        Every entry is verified against the registry (package and version exist, manifest digest matches); any
+        mismatch rejects the whole import with `422 lockfile_invalid`. Entries with `direct: false` are verified but
+        not pinned (they are resolved as dependencies).
+      operationId: importLockfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [lockfile]
+              properties:
+                lockfile: { $ref: '#/components/schemas/Lockfile' }
+      responses:
+        '200':
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pinned, warnings]
+                properties:
+                  pinned: { type: integer }
+                  warnings: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /lockfiles:
+    get:
+      tags: [library]
+      summary: Saved lockfiles (newest first, without content)
+      operationId: listLockfiles
+      responses:
+        '200':
+          description: Lockfiles
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SavedLockfile' } }
+  /lockfiles/{lockfileId}:
+    parameters:
+      - { name: lockfileId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [library]
+      summary: Download a saved lockfile (exact canonical bytes; X-Content-Digest is their sha256)
+      operationId: getLockfile
+      responses:
+        '200':
+          description: openaudio.lock.json
+          headers:
+            X-Content-Digest: { schema: { $ref: '#/components/schemas/Digest' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lockfile' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [library]
+      summary: Delete a saved lockfile
+      operationId: deleteLockfile
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
 
 components:
   securitySchemes:
@@ -1432,19 +1575,20 @@ components:
         downloadUrl: { type: string, description: API path that counts the download and redirects to a presigned URL }
     LibraryItem:
       type: object
-      required: [packageId, installedVersion, addedAt]
+      required: [packageId, package, pinnedVersion, installedVersion, addedAt]
       properties:
         packageId: { type: string }
+        package: { $ref: '#/components/schemas/Package' }
         pinnedVersion: { type: [string, 'null'] }
-        installedVersion: { $ref: '#/components/schemas/SemVer' }
+        installedVersion: { type: [string, 'null'] }
         addedAt: { type: string, format: date-time }
     Library:
       type: object
-      required: [id, name, items]
+      required: [id, name, createdAt]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        items: { type: array, items: { $ref: '#/components/schemas/LibraryItem' } }
+        createdAt: { type: string, format: date-time }
     Lockfile:
       type: object
       required: [lockfileVersion, name, generatedAt, packages]
@@ -1456,29 +1600,44 @@ components:
           type: object
           additionalProperties:
             type: object
-            required: [id, version, manifestDigest, resolved]
+            required: [id, version, manifestDigest, resolved, direct]
             properties:
               id: { type: string }
               version: { $ref: '#/components/schemas/SemVer' }
               manifestDigest: { $ref: '#/components/schemas/Digest' }
               resolved: { type: string, examples: ['openaudio://acme/deep-house-toolkit@1.2.0'] }
+              direct: { type: boolean, description: In the library itself (false = pulled in as a dependency) }
+              yanked: { type: boolean }
+              dependencies: { type: object, additionalProperties: { type: string } }
+    SavedLockfile:
+      type: object
+      required: [id, name, contentDigest, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        libraryId: { type: [string, 'null'], format: uuid }
+        contentDigest: { $ref: '#/components/schemas/Digest' }
+        createdAt: { type: string, format: date-time }
+        lockfile: { $ref: '#/components/schemas/Lockfile' }
     ResolveResult:
       type: object
-      required: [lockfile, conflicts]
+      required: [lockfile, conflicts, warnings]
       properties:
         lockfile: { $ref: '#/components/schemas/Lockfile' }
         conflicts:
           type: array
           items:
             type: object
-            required: [packageId, requestedBy, candidates]
+            required: [packageId, reason, requestedBy, candidates]
             properties:
               packageId: { type: string }
+              reason: { type: string, enum: [no_matching_version, package_not_found] }
               requestedBy:
                 type: array
                 items:
                   type: object
                   properties:
-                    packageId: { type: string }
+                    packageId: { type: string, description: 'Requesting package, or "library" for the library pin' }
                     range: { type: string }
               candidates: { type: array, items: { type: string } }
+        warnings: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }

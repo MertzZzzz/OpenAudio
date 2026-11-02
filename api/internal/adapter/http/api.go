@@ -12,6 +12,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/adapter/oauth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/library"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
@@ -33,6 +34,7 @@ type Options struct {
 	Publishing *publishing.Service
 	Uploads    *uploads.Service
 	Search     *search.Service
+	Library    *library.Service
 	Tokens     TokenParser
 	Providers  []oauth.Provider
 	Checks     []HealthCheck
@@ -54,6 +56,7 @@ type API struct {
 	pub       *publishing.Service
 	up        *uploads.Service
 	srch      *search.Service
+	lib       *library.Service
 	tokens    TokenParser
 	providers map[domain.AuthProvider]oauth.Provider
 	order     []domain.AuthProvider
@@ -75,7 +78,7 @@ func NewHandler(o Options) http.Handler {
 		o.Now = time.Now
 	}
 	a := &API{
-		auth: o.Auth, pub: o.Publishing, up: o.Uploads, srch: o.Search, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
+		auth: o.Auth, pub: o.Publishing, up: o.Uploads, srch: o.Search, lib: o.Library, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
 		providers: map[domain.AuthProvider]oauth.Provider{},
 	}
 	for _, p := range o.Providers {
@@ -154,6 +157,28 @@ func NewHandler(o Options) http.Handler {
 		r.Get("/search/facets", a.searchFacets)
 		r.Get("/search/samples", a.searchSamples)
 		r.Get("/taxonomy", a.taxonomy)
+
+		// Libraries & lockfiles (personal)
+		r.Route("/libraries", func(r chi.Router) {
+			r.Use(a.requireAuth)
+			r.Get("/", a.listLibraries)
+			r.Post("/", a.createLibrary)
+			r.Patch("/{libraryId}", a.renameLibrary)
+			r.Delete("/{libraryId}", a.deleteLibrary)
+			r.Get("/{libraryId}/items", a.listItems)
+			r.Post("/{libraryId}/items", a.addItem)
+			r.Patch("/{libraryId}/items/{packageId}", a.updateItem)
+			r.Delete("/{libraryId}/items/{packageId}", a.removeItem)
+			r.Post("/{libraryId}/resolve", a.resolveLibrary)
+			r.Post("/{libraryId}/lockfiles", a.saveLockfile)
+			r.Post("/{libraryId}/import", a.importLockfile)
+		})
+		r.Route("/lockfiles", func(r chi.Router) {
+			r.Use(a.requireAuth)
+			r.Get("/", a.listLockfiles)
+			r.Get("/{lockfileId}", a.getLockfile)
+			r.Delete("/{lockfileId}", a.deleteLockfile)
+		})
 
 		// Uploads
 		r.Route("/uploads", func(r chi.Router) {

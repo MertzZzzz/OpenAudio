@@ -26,6 +26,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/manifest"
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/library"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
@@ -89,10 +90,11 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 	require.NoError(t, err)
 	pubSvc := publishing.NewService(publishing.Deps{Users: store.Users(), Publishers: cat.Publishers(), Packages: cat.Packages(), Releases: cat.Releases(), Blobs: blobs, Validator: validator, Logger: log})
 	upSvc := uploads.NewService(uploads.Deps{Uploads: cat.Uploads(), Publishers: cat.Publishers(), Blobs: blobs, Logger: log}, uploads.Config{PartSize: 4})
+	libSvc := library.NewService(library.Deps{Libraries: cat.Libraries(), Lockfiles: cat.Lockfiles(), Packages: cat.Packages(), Releases: cat.Releases(), Logger: log})
 	fs := &fakeSearch{}
 	searchSvc := search.NewService(search.Deps{Repo: fs, Packages: cat.Packages(), Logger: log})
 	h := httpapi.NewHandler(httpapi.Options{
-		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
+		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Library: libSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
 		WebURL: webURL, CORSOrigins: []string{webURL}, StateKey: []byte("state-key"), Limiter: limiter,
 		Checks: []httpapi.HealthCheck{{Name: "database", Check: func(context.Context) error {
 			if ok {

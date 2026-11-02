@@ -26,6 +26,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/logger"
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/library"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
@@ -111,6 +112,8 @@ func run() error {
 	upSvc := uploads.NewService(uploads.Deps{Uploads: postgres.NewUploadRepo(pool), Publishers: publisherRepo, Blobs: storage, Logger: log},
 		uploads.Config{PartSize: cfg.UploadPartSize, MaxSize: cfg.MaxBlobSize})
 
+	libSvc := library.NewService(library.Deps{Libraries: postgres.NewLibraryRepo(pool), Lockfiles: postgres.NewLockfileRepo(pool),
+		Packages: packageRepo, Releases: postgres.NewReleaseRepo(pool), Logger: log})
 	searchSvc := search.NewService(search.Deps{Repo: postgres.NewSearchRepo(pool), Packages: packageRepo, Logger: log})
 
 	var providers []oauth.Provider
@@ -130,7 +133,7 @@ func run() error {
 	stateMAC.Write([]byte("openaudio/oauth-state"))
 
 	handler := httpapi.NewHandler(httpapi.Options{
-		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
+		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Library: libSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
 		WebURL: cfg.WebURL, CORSOrigins: cfg.CORSOrigins, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy,
 		StateKey: stateMAC.Sum(nil), Limiter: httpapi.NewRateLimiter(10, 5),
 		Checks: []httpapi.HealthCheck{
