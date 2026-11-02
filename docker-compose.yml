@@ -1,0 +1,90 @@
+# Local development stack.
+#   docker compose up            → PostgreSQL, MinIO (+ bucket), web (Vite dev server, mock API)
+#   docker compose --profile api up   → also builds/starts the Go API (Phase 2+)
+name: openaudio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openaudio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openaudio}
+      POSTGRES_DB: ${POSTGRES_DB:-openaudio}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openaudio} -d ${POSTGRES_DB:-openaudio}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest # TODO: pin a RELEASE tag
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-openaudio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest # TODO: pin together with minio
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/$${MINIO_BUCKET} &&
+      mc anonymous set none local/$${MINIO_BUCKET}
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-openaudio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
+
+  api:
+    profiles: ["api"]
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-openaudio}:${POSTGRES_PASSWORD:-openaudio}@postgres:5432/${POSTGRES_DB:-openaudio}?sslmode=disable
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-openaudio}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
+      S3_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+
+volumes:
+  pgdata:
+  miniodata:

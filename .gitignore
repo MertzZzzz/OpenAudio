@@ -1,0 +1,25 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Web
+web/node_modules/
+web/dist/
+web/coverage/
+web/*.local
+
+# Go
+api/bin/
+api/tmp/
+*.test
+coverage.out
+
+# Docker volumes (local)
+.data/
