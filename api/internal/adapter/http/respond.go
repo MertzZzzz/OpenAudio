@@ -70,14 +70,18 @@ var errBadJSON = func(msg string) *domain.Error {
 	return &domain.Error{Kind: domain.KindValidation, Code: "invalid_json", Message: msg}
 }
 
-// decodeJSON strictly decodes the request body. An empty body is allowed when optional is true.
+// decodeJSON strictly decodes the request body (≤ 1 MiB). An empty body is allowed when optional is true.
 func decodeJSON(r *http.Request, dst any, optional bool) error {
+	return decodeJSONLimit(r, dst, optional, maxBodyBytes)
+}
+
+func decodeJSONLimit(r *http.Request, dst any, optional bool, limit int64) error {
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		if mt, _, err := mime.ParseMediaType(ct); err != nil || mt != "application/json" {
 			return &domain.Error{Kind: domain.KindValidation, Code: "unsupported_media_type", Message: "Content-Type must be application/json"}
 		}
 	}
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxBodyBytes))
+	dec := json.NewDecoder(io.LimitReader(r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		if errors.Is(err, io.EOF) && optional {

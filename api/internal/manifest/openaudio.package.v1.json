@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openaudio.dev/schemas/openaudio.package/v1.json",
+  "title": "OpenAudio package manifest v1",
+  "description": "Metadata contract of an OpenAudio release. Stored in releases.manifest (JSONB) and as an immutable object in S3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "kind", "version", "publisher", "license", "taxonomy", "artifacts"],
+  "properties": {
+    "schema": { "const": "openaudio.package/v1" },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$", "maxLength": 140 },
+    "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+    "kind": { "$ref": "#/$defs/kind" },
+    "version": { "$ref": "#/$defs/semver" },
+    "description": { "type": "string", "maxLength": 2000 },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } }
+    },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content", "commercialUse", "attributionRequired"],
+      "properties": {
+        "content": { "type": "string", "minLength": 1, "maxLength": 64, "description": "SPDX identifier" },
+        "commercialUse": { "type": "boolean" },
+        "attributionRequired": { "type": "boolean" }
+      }
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["genres", "instruments", "moods"],
+      "properties": {
+        "genres": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary"],
+          "properties": {
+            "primary": { "$ref": "#/$defs/slug" },
+            "secondary": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "maxItems": 3, "uniqueItems": true }
+          }
+        },
+        "instruments": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "uniqueItems": true, "maxItems": 20 },
+        "moods": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "uniqueItems": true, "maxItems": 3 },
+        "useCases": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "uniqueItems": true, "maxItems": 10 },
+        "energy": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "musical": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bpm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": { "$ref": "#/$defs/bpm" },
+            "range": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/bpm" }, { "$ref": "#/$defs/bpm" }], "minItems": 2, "maxItems": 2 },
+            "sync": { "type": "boolean" }
+          }
+        },
+        "key": { "$ref": "#/$defs/key" },
+        "timeSignature": { "type": "string", "pattern": "^[1-9][0-9]?/(1|2|4|8|16|32)$" }
+      }
+    },
+    "technical": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sampleRate": { "type": "integer", "minimum": 8000, "maximum": 768000 },
+        "bitDepth": { "enum": [8, 16, 24, 32, 64] },
+        "formats": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*$" }, "minItems": 1, "uniqueItems": true }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["moduleClass", "capabilities", "categories"],
+      "properties": {
+        "moduleClass": { "enum": ["instrument", "audio-effect", "note-effect", "note-generator", "audio-generator", "analyzer", "utility", "converter", "macro", "visualizer"] },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accepts", "produces", "placement"],
+          "properties": {
+            "accepts": { "type": "array", "items": { "$ref": "#/$defs/signal" }, "uniqueItems": true },
+            "produces": { "type": "array", "items": { "$ref": "#/$defs/signal" }, "uniqueItems": true },
+            "placement": { "type": "array", "items": { "enum": ["instrument-track", "audio-track", "midi-track", "bus", "master", "send", "insert"] }, "uniqueItems": true },
+            "bypassable": { "type": "boolean" },
+            "wetDry": { "type": "boolean" },
+            "stateful": { "type": "boolean" }
+          }
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "direction", "signal"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "direction": { "enum": ["in", "out"] },
+              "signal": { "$ref": "#/$defs/signal" },
+              "channels": { "type": "integer", "minimum": 1, "maximum": 64 }
+            }
+          }
+        },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "uniqueItems": true }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "range"],
+        "properties": {
+          "id": { "type": "string", "minLength": 3 },
+          "range": { "type": "string", "pattern": "^(\\*|(\\^|~|>=)?\\d+\\.\\d+\\.\\d+)$" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "digest", "size"],
+        "properties": {
+          "kind": { "enum": ["sample", "preview", "binary", "index"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^/\\\\][^\\\\]*$" },
+          "digest": { "$ref": "#/$defs/digest" },
+          "size": { "type": "integer", "minimum": 0 },
+          "contentType": { "type": "string", "maxLength": 128 }
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "description": "Per-sample metadata (spec §6.3); values override package defaults.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "file"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "file": { "type": "string", "minLength": 1 },
+          "digest": { "$ref": "#/$defs/digest" },
+          "contentType": { "enum": ["loop", "one-shot"] },
+          "instrument": { "$ref": "#/$defs/slug" },
+          "role": { "enum": ["drums", "bass", "lead", "pad", "fx", "transition"] },
+          "bpm": { "$ref": "#/$defs/bpm" },
+          "key": { "$ref": "#/$defs/key" },
+          "durationSec": { "type": "number", "minimum": 0 },
+          "loop": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "start": { "type": "number", "minimum": 0 }, "end": { "type": "number", "minimum": 0 }, "seamless": { "type": "boolean" } }
+          },
+          "moods": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "maxItems": 3 },
+          "energy": { "$ref": "#/$defs/unit" },
+          "tags": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 20 },
+          "preview": { "$ref": "#/$defs/digest" }
+        }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "free": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 32 }, "maxItems": 20, "uniqueItems": true } }
+    },
+    "metadataProvenance": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source"],
+        "properties": { "source": { "enum": ["author", "auto", "curator"] }, "confidence": { "$ref": "#/$defs/unit" } }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "enum": ["instrument", "effect", "midi-tool", "utility", "model"] } }, "required": ["kind"] },
+      "then": { "required": ["module"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "sample-pack" } }, "required": ["kind"] },
+      "then": { "not": { "required": ["module"] } }
+    }
+  ],
+  "$defs": {
+    "kind": { "enum": ["sample-pack", "preset-pack", "instrument", "effect", "midi-tool", "utility", "project-template", "model"] },
+    "semver": { "type": "string", "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$" },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "bpm": { "type": "integer", "minimum": 20, "maximum": 400 },
+    "signal": { "enum": ["audio", "midi", "transport", "automation", "sidechain", "analysis"] },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tonic", "mode"],
+      "properties": {
+        "tonic": { "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] },
+        "mode": { "enum": ["major", "minor"] },
+        "camelot": { "type": "string", "pattern": "^(1[0-2]|[1-9])[AB]$" }
+      }
+    }
+  }
+}

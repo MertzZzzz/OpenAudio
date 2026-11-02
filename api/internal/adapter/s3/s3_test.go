@@ -1,7 +1,9 @@
 package s3
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,16 +13,18 @@ import (
 	"github.com/johannesboyne/gofakes3/backend/s3mem"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
 )
 
 func TestBlobKey(t *testing.T) {
 	hex := strings.Repeat("ab", 32)
-	k, err := BlobKey("sha256:" + hex)
+	k, err := domain.BlobKey("sha256:" + hex)
 	require.NoError(t, err)
 	assert.Equal(t, "blobs/"+hex, k)
 
 	for _, bad := range []string{"", "sha256:xyz", "md5:" + hex, "sha256:" + strings.ToUpper(hex), "sha256:" + hex + "/../x"} {
-		_, err := BlobKey(bad)
+		_, err := domain.BlobKey(bad)
 		assert.Error(t, err, bad)
 	}
 }
@@ -49,4 +53,58 @@ func TestEnsureBucketAndPingAgainstFakeS3(t *testing.T) {
 	require.NoError(t, s.EnsureBucket(ctx))
 	require.NoError(t, s.EnsureBucket(ctx), "idempotent")
 	assert.NoError(t, s.Ping(ctx))
+}
+
+func TestBlobStoreAgainstFakeS3(t *testing.T) {
+	srv := httptest.NewServer(gofakes3.New(s3mem.New()).Server())
+	defer srv.Close()
+	s, err := New(Config{Endpoint: srv.URL, AccessKey: "ak", SecretKey: "sk", Bucket: "openaudio-test", Region: "us-east-1"})
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, s.EnsureBucket(ctx))
+
+	_, ok, err := s.Stat(ctx, "missing")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	_, err = s.Open(ctx, "missing")
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+
+	require.NoError(t, s.Put(ctx, domain.ManifestKey("acme.kit", "1.0.0"), []byte(`{"a":1}`), "application/json"))
+	size, ok, err := s.Stat(ctx, "manifests/acme.kit/1.0.0/manifest.json")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.EqualValues(t, 7, size)
+
+	// Multipart: two 5 MiB parts (S3 minimum for non-final parts) + a small tail.
+	part := func(b byte, n int) []byte { return bytes.Repeat([]byte{b}, n) }
+	chunks := [][]byte{part('a', 5<<20), part('b', 5<<20), part('c', 123)}
+	key := domain.UploadKey("u1")
+	id, err := s.CreateMultipart(ctx, key, "audio/wav")
+	require.NoError(t, err)
+	var done []domain.CompletedPart
+	for i := len(chunks) - 1; i >= 0; i-- { // out of order on purpose
+		etag, err := s.UploadPart(ctx, key, id, i+1, bytes.NewReader(chunks[i]), int64(len(chunks[i])))
+		require.NoError(t, err)
+		done = append([]domain.CompletedPart{{Number: i + 1, ETag: etag}}, done...)
+	}
+	require.NoError(t, s.CompleteMultipart(ctx, key, id, done))
+
+	r, err := s.Open(ctx, key)
+	require.NoError(t, err)
+	got, err := io.ReadAll(r)
+	require.NoError(t, err)
+	r.Close()
+	assert.Equal(t, bytes.Join(chunks, nil), got)
+
+	require.NoError(t, s.Copy(ctx, key, "blobs/abc"))
+	require.NoError(t, s.Delete(ctx, key))
+	_, ok, _ = s.Stat(ctx, key)
+	assert.False(t, ok)
+	size, ok, _ = s.Stat(ctx, "blobs/abc")
+	assert.True(t, ok)
+	assert.EqualValues(t, 10<<20+123, size)
+
+	id2, err := s.CreateMultipart(ctx, domain.UploadKey("u2"), "")
+	require.NoError(t, err)
+	assert.NoError(t, s.AbortMultipart(ctx, domain.UploadKey("u2"), id2))
 }

@@ -87,3 +87,27 @@ func KindOf(err error) Kind {
 	}
 	return KindInternal
 }
+
+// Issue is one finding of a validation pass (e.g. manifest validation). Errors block
+// publishing; warnings and infos are advisory.
+type Issue struct {
+	Severity string `json:"severity"` // error | warning | info
+	Path     string `json:"path"`
+	Message  string `json:"message"`
+}
+
+// IssuesError converts the error-severity issues into a validation error (nil when there are none).
+func IssuesError(code, msg string, issues []Issue) error {
+	var fields []FieldError
+	for _, i := range issues {
+		if i.Severity == "error" {
+			fields = append(fields, FieldError{Field: i.Path, Message: i.Message})
+		}
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	e := Validation(fields...)
+	e.Code, e.Message = code, msg
+	return e
+}
