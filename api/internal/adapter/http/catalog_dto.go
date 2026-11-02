@@ -6,7 +6,6 @@ import (
 
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
-	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
 type publisherDTO struct {
@@ -173,5 +172,3 @@ func toUploadDTO(u *domain.Upload, parts []domain.UploadPart) uploadDTO {
 	}
 	return d
 }
-
-var _ = uploads.Status{}

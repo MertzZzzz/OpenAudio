@@ -92,7 +92,13 @@ func TestCatalogRepos(t *testing.T) {
 		assert.Equal(t, []string{"1.10.0", "1.9.0", "1.0.0"}, []string{list[0].Version, list[1].Version, list[2].Version}, "semver order, not lexical")
 
 		r9, _ := rels.Get(ctx, pkg.ID, "1.9.0")
-		require.NoError(t, rels.UpdateDraft(ctx, r9.ID, []byte(`{"changed":true}`), digest("b"), "notes"))
+		canonical := []byte(`{"b":1.50,"a":{"z":1e3,"y":"é"}}`) // JSONB would reorder keys and rewrite numbers
+		require.NoError(t, rels.UpdateDraft(ctx, r9.ID, canonical, digest("b"), "notes"))
+		got9, _ := rels.Get(ctx, pkg.ID, "1.9.0")
+		assert.Equal(t, string(canonical), string(got9.Manifest), "manifest bytes round-trip exactly (digest stays valid)")
+		var viaJSONB string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT manifest->'a'->>'y' FROM releases WHERE id = $1`, r9.ID).Scan(&viaJSONB))
+		assert.Equal(t, "é", viaJSONB, "JSONB copy stays queryable")
 
 		publish := func(r *domain.Release, arts ...domain.Artifact) error {
 			return rels.Publish(ctx, domain.PublishInput{ReleaseID: r.ID, PackageID: pkg.ID, PublishedBy: owner.ID, Artifacts: arts, At: now,
@@ -108,7 +114,7 @@ func TestCatalogRepos(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, v.LatestVersion)
 		assert.Equal(t, "1.9.0", *v.LatestVersion)
-		assert.JSONEq(t, `{"changed":true}`, string(v.LatestManifest))
+		assert.Equal(t, string(canonical), string(v.LatestManifest))
 		assert.Equal(t, 2, v.SampleCount)
 		assert.EqualValues(t, 42, v.TotalSize)
 
@@ -168,7 +174,7 @@ func TestCatalogRepos(t *testing.T) {
 		require.NoError(t, ups.PutPart(ctx, u.ID, domain.UploadPart{Number: 1, ETag: "e1", Size: 8}))
 		parts, err := ups.Parts(ctx, u.ID)
 		require.NoError(t, err)
-		assert.Equal(t, []domain.UploadPart{{1, "e1", 8}, {2, "e2", 8}}, parts)
+		assert.Equal(t, []domain.UploadPart{{Number: 1, ETag: "e1", Size: 8}, {Number: 2, ETag: "e2", Size: 8}}, parts)
 		require.NoError(t, ups.Finish(ctx, u.ID, domain.UploadDone, "", now))
 		assert.Error(t, ups.Finish(ctx, u.ID, domain.UploadFailed, "x", now))
 		got, err := ups.Get(ctx, u.ID)

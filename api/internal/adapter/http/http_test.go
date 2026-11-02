@@ -23,8 +23,11 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/adapter/memory"
 	"github.com/MertzZzzz/OpenAudio/api/internal/adapter/oauth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
+	"github.com/MertzZzzz/OpenAudio/api/internal/manifest"
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
 /* ------------------------------------------------------------ test rig */
@@ -51,6 +54,7 @@ func (f *fakeProvider) Exchange(_ context.Context, code, verifier string) (*doma
 }
 
 type rig struct {
+	blobs   *memory.Blobs
 	h       http.Handler
 	mail    *mailer.Recorder
 	google  *fakeProvider
@@ -77,8 +81,14 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 		Provider: domain.ProviderGoogle, Subject: "g-42", Email: "gina@gmail.com", EmailVerified: true, Name: "Gina",
 	}}
 	ok := true
+	cat := memory.NewCatalog(store)
+	blobs := memory.NewBlobs()
+	validator, err := manifest.NewValidator()
+	require.NoError(t, err)
+	pubSvc := publishing.NewService(publishing.Deps{Users: store.Users(), Publishers: cat.Publishers(), Packages: cat.Packages(), Releases: cat.Releases(), Blobs: blobs, Validator: validator, Logger: log})
+	upSvc := uploads.NewService(uploads.Deps{Uploads: cat.Uploads(), Publishers: cat.Publishers(), Blobs: blobs, Logger: log}, uploads.Config{PartSize: 4})
 	h := httpapi.NewHandler(httpapi.Options{
-		Auth: svc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
+		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
 		WebURL: webURL, CORSOrigins: []string{webURL}, StateKey: []byte("state-key"), Limiter: limiter,
 		Checks: []httpapi.HealthCheck{{Name: "database", Check: func(context.Context) error {
 			if ok {
@@ -87,7 +97,7 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 			return errors.New("connection refused")
 		}}},
 	})
-	return &rig{h: h, mail: rec, google: google, checkOK: &ok}
+	return &rig{h: h, mail: rec, google: google, checkOK: &ok, blobs: blobs}
 }
 
 type req struct {
@@ -104,13 +114,15 @@ func (r *rig) do(t *testing.T, q req) *httptest.ResponseRecorder {
 	if q.body != nil {
 		if s, ok := q.body.(string); ok {
 			body = strings.NewReader(s)
+		} else if b, ok := q.body.([]byte); ok {
+			body = bytes.NewReader(b)
 		} else {
 			b, _ := json.Marshal(q.body)
 			body = bytes.NewReader(b)
 		}
 	}
 	hr := httptest.NewRequest(q.method, q.path, body)
-	if q.body != nil {
+	if _, raw := q.body.([]byte); q.body != nil && !raw {
 		hr.Header.Set("Content-Type", "application/json")
 	}
 	if q.bearer != "" {

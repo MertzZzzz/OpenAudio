@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OpenAudio API
-  version: 0.2.0
+  version: 0.3.0
   summary: Catalog, publishing and versioning of open audio packages.
   description: |
     API-first contract for the OpenAudio MVP. The web app's mock layer
@@ -27,9 +27,14 @@ tags:
     description: Email/password, Google and Discord sign-in; sessions; email verification; password reset
   - name: admin
     description: Platform administration
+  - name: publishers
+    description: Publishers and their members (owner / maintainer / uploader)
   - name: packages
+    description: Packages and manifests
   - name: releases
+    description: Draft → publish (immutable) → yank
   - name: uploads
+    description: Resumable content-addressed blob uploads
   - name: search
   - name: library
 security:
@@ -322,18 +327,191 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
 
+  # -------------------------------------------------------------- manifests
+  /schemas/openaudio.package/v1:
+    get:
+      tags: [packages]
+      summary: JSON Schema of the package manifest (draft 2020-12)
+      operationId: getManifestSchema
+      security: []
+      responses:
+        '200':
+          description: JSON Schema
+          content:
+            application/schema+json:
+              schema: { type: object }
+  /manifests/validate:
+    post:
+      tags: [packages]
+      summary: Validate a manifest without storing it (JSON Schema + domain rules + recommendations)
+      description: With `publisher` and `package` the manifest is first normalized against that package, as a draft would be.
+      operationId: validateManifest
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [manifest]
+              properties:
+                manifest: { $ref: '#/components/schemas/Manifest' }
+                publisher: { type: string }
+                package: { type: string }
+      responses:
+        '200':
+          description: Validation report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid, issues]
+                properties:
+                  valid: { type: boolean }
+                  issues: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
+
+  # ------------------------------------------------------------- publishers
+  /publishers:
+    post:
+      tags: [publishers]
+      summary: Create a publisher (caller becomes owner; requires a verified email)
+      description: A caller with platform role `user` is promoted to `publisher`; refresh the session to get the new role in the access token.
+      operationId: createPublisher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [slug, name]
+              properties:
+                slug: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', minLength: 2, maxLength: 40 }
+                name: { type: string, minLength: 2, maxLength: 80 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Publisher' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /me/publishers:
+    get:
+      tags: [publishers]
+      summary: Publishers the caller is a member of (with role)
+      operationId: myPublishers
+      responses:
+        '200':
+          description: Memberships
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Publisher' } }
+        '401': { $ref: '#/components/responses/Error' }
+  /publishers/{publisher}:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+    get:
+      tags: [publishers]
+      summary: Publisher profile
+      operationId: getPublisher
+      security: []
+      responses:
+        '200':
+          description: Publisher
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Publisher' }
+        '404': { $ref: '#/components/responses/Error' }
+  /publishers/{publisher}/packages:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+    get:
+      tags: [publishers]
+      summary: Dashboard listing — every package (published or not) with all releases, including drafts (members only)
+      operationId: publisherPackages
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/Package'
+                    - type: object
+                      properties:
+                        releases: { type: array, items: { $ref: '#/components/schemas/Release' } }
+        '403': { $ref: '#/components/responses/Error' }
+  /publishers/{publisher}/members:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+    get:
+      tags: [publishers]
+      summary: Members (visible to members)
+      operationId: listMembers
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [publishers]
+      summary: Add an existing user as maintainer or uploader (owner only)
+      operationId: addMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [maintainer, uploader] }
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /publishers/{publisher}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [publishers]
+      summary: Remove a member (owner), or leave (self). The owner cannot be removed.
+      operationId: removeMember
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
   # -------------------------------------------------------------- packages
   /packages:
     get:
       tags: [packages]
-      summary: List packages
+      summary: List published public packages
+      description: Basic listing (text, kind, publisher). Taxonomy/BPM/key facets come with `/search` (Phase 5).
       operationId: listPackages
       security: []
       parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: kind, in: query, style: form, explode: false, schema: { type: array, items: { $ref: '#/components/schemas/PackageKind' } } }
+        - { name: publisher, in: query, schema: { type: string } }
+        - { name: sort, in: query, schema: { type: string, enum: [newest, name, created], default: newest } }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
-        - { name: publisher, in: query, schema: { type: string } }
-        - { name: kind, in: query, schema: { $ref: '#/components/schemas/PackageKind' } }
       responses:
         '200':
           description: Page of packages
@@ -342,7 +520,7 @@ paths:
               schema: { $ref: '#/components/schemas/PackagePage' }
     post:
       tags: [packages]
-      summary: Create a package under a publisher
+      summary: Create a package (owner / maintainer)
       operationId: createPackage
       requestBody:
         required: true
@@ -350,6 +528,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [publisher, slug, name, kind]
               properties:
                 publisher: { type: string }
@@ -357,6 +536,7 @@ paths:
                 name: { type: string, minLength: 2, maxLength: 80 }
                 kind: { $ref: '#/components/schemas/PackageKind' }
                 description: { type: string, maxLength: 2000 }
+                visibility: { type: string, enum: [public, unlisted, private], default: public }
       responses:
         '201':
           description: Created
@@ -365,13 +545,14 @@ paths:
               schema: { $ref: '#/components/schemas/Package' }
         '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /packages/{publisher}/{slug}:
     parameters:
       - $ref: '#/components/parameters/Publisher'
       - $ref: '#/components/parameters/Slug'
     get:
       tags: [packages]
-      summary: Package details
+      summary: Package details (metadata from the latest published manifest)
       operationId: getPackage
       security: []
       responses:
@@ -391,6 +572,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 name: { type: string }
                 description: { type: string }
@@ -408,7 +590,7 @@ paths:
       - $ref: '#/components/parameters/Slug'
     get:
       tags: [packages]
-      summary: All releases of a package (newest first)
+      summary: All releases, newest version first (drafts only for members)
       operationId: listVersions
       security: []
       responses:
@@ -416,9 +598,7 @@ paths:
           description: Releases
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Release' }
+              schema: { type: array, items: { $ref: '#/components/schemas/Release' } }
   /packages/{publisher}/{slug}/versions/{version}/manifest:
     parameters:
       - $ref: '#/components/parameters/Publisher'
@@ -426,19 +606,20 @@ paths:
       - $ref: '#/components/parameters/Version'
     get:
       tags: [packages]
-      summary: Immutable manifest of a release
+      summary: Canonical manifest bytes of a release
+      description: The body hashes to `X-Content-Digest`, which is also the strong ETag.
       operationId: getManifest
       security: []
       responses:
         '200':
           description: Manifest
           headers:
-            Digest:
-              description: sha256 of the canonical manifest JSON
-              schema: { type: string }
+            X-Content-Digest: { schema: { $ref: '#/components/schemas/Digest' } }
+            ETag: { schema: { type: string } }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Manifest' }
+        '304': { description: Not modified }
         '404': { $ref: '#/components/responses/Error' }
 
   # -------------------------------------------------------------- releases
@@ -448,8 +629,10 @@ paths:
       - $ref: '#/components/parameters/Slug'
     post:
       tags: [releases]
-      summary: Create a draft release from a manifest
-      description: Validates the manifest against `openaudio.package/v1` and module rules. Artifacts must reference completed uploads by digest.
+      summary: Create a draft release from a manifest (any member)
+      description: |
+        The server fills `schema`, `id` (`<publisher>.<package>`), `publisher`, `kind` and `name`, rejects conflicting values,
+        validates the manifest and stores it canonically with its sha256 digest. Warnings are returned but do not block.
       operationId: createRelease
       requestBody:
         required: true
@@ -457,16 +640,15 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [manifest]
               properties:
-                changelog: { type: string }
+                version: { $ref: '#/components/schemas/SemVer' }
+                changelog: { type: string, maxLength: 5000 }
                 manifest: { $ref: '#/components/schemas/Manifest' }
       responses:
-        '201':
-          description: Draft created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Release' }
+        '201': { $ref: '#/components/responses/Draft' }
+        '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /packages/{publisher}/{slug}/releases/{version}:
@@ -476,7 +658,7 @@ paths:
       - $ref: '#/components/parameters/Version'
     get:
       tags: [releases]
-      summary: Release with its artifacts
+      summary: Release with artifacts (presigned download URLs for published releases)
       operationId: getRelease
       security: []
       responses:
@@ -484,15 +666,33 @@ paths:
           description: Release
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Release'
-                  - type: object
-                    properties:
-                      artifacts:
-                        type: array
-                        items: { $ref: '#/components/schemas/Artifact' }
+              schema: { $ref: '#/components/schemas/ReleaseDetails' }
         '404': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [releases]
+      summary: Replace the manifest and/or changelog of a draft
+      operationId: updateRelease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                changelog: { type: string }
+                manifest: { $ref: '#/components/schemas/Manifest' }
+      responses:
+        '200': { $ref: '#/components/responses/Draft' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [releases]
+      summary: Delete a draft
+      operationId: deleteRelease
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Error' }
   /packages/{publisher}/{slug}/releases/{version}/publish:
     parameters:
       - $ref: '#/components/parameters/Publisher'
@@ -500,7 +700,11 @@ paths:
       - $ref: '#/components/parameters/Version'
     post:
       tags: [releases]
-      summary: Publish a draft (verifies every blob digest; irreversible)
+      summary: Publish a draft (owner / maintainer; irreversible)
+      description: |
+        Re-validates the manifest and checks that every artifact exists at `blobs/{sha256}` with the declared size
+        (`422 release_incomplete` lists the missing ones). Stores the manifest at
+        `manifests/{packageId}/{version}/manifest.json`, records artifacts and taxonomy, recomputes `latestVersion`.
       operationId: publishRelease
       responses:
         '200':
@@ -508,7 +712,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Release' }
+        '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /packages/{publisher}/{slug}/releases/{version}/yank:
     parameters:
       - $ref: '#/components/parameters/Publisher'
@@ -516,28 +722,25 @@ paths:
       - $ref: '#/components/parameters/Version'
     post:
       tags: [releases]
-      summary: Yank a published release (kept for existing lockfiles, skipped by the resolver)
+      summary: Yank a published release (stays downloadable for existing lockfiles, never chosen for new installs)
       operationId: yankRelease
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                reason: { type: string }
       responses:
         '200':
           description: Yanked
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Release' }
+        '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
 
   # --------------------------------------------------------------- uploads
   /uploads:
     post:
       tags: [uploads]
-      summary: Start a multipart upload for a blob
+      summary: Start a resumable upload of one content-addressed blob
+      description: |
+        Returns `200` with `status: done` when a blob with this digest already exists (nothing to upload),
+        otherwise `201` with `partSize` / `partCount`. Requires membership in a publisher (or role publisher/admin).
       operationId: createUpload
       requestBody:
         required: true
@@ -545,40 +748,42 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [digest, size]
               properties:
                 digest: { $ref: '#/components/schemas/Digest' }
                 size: { type: integer, minimum: 1 }
-                contentType: { type: string }
+                contentType: { type: string, maxLength: 128 }
       responses:
-        '201':
-          description: Upload session (or `status=done` when the blob already exists)
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Upload' }
+        '200': { $ref: '#/components/responses/Upload' }
+        '201': { $ref: '#/components/responses/Upload' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /uploads/{uploadId}:
     parameters:
       - $ref: '#/components/parameters/UploadId'
     get:
       tags: [uploads]
-      summary: Upload status
+      summary: Upload status with received parts (for resuming)
       operationId: getUpload
       responses:
-        '200':
-          description: Upload
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Upload' }
+        '200': { $ref: '#/components/responses/Upload' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [uploads]
+      summary: Abort a pending upload
+      operationId: abortUpload
+      responses:
+        '204': { description: Aborted }
+        '409': { $ref: '#/components/responses/Error' }
   /uploads/{uploadId}/parts/{partNumber}:
     parameters:
       - $ref: '#/components/parameters/UploadId'
-      - name: partNumber
-        in: path
-        required: true
-        schema: { type: integer, minimum: 1, maximum: 10000 }
+      - { name: partNumber, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 10000 } }
     put:
       tags: [uploads]
-      summary: Upload one part
+      summary: Upload one part; Content-Length must equal the exact part size. Parts may arrive in any order and be retried.
       operationId: uploadPart
       requestBody:
         required: true
@@ -590,24 +795,19 @@ paths:
           description: Part stored
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  partNumber: { type: integer }
-                  etag: { type: string }
+              schema: { $ref: '#/components/schemas/UploadPart' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /uploads/{uploadId}/complete:
     parameters:
       - $ref: '#/components/parameters/UploadId'
     post:
       tags: [uploads]
-      summary: Complete the upload; server verifies SHA-256 and moves it to blobs/{sha256}
+      summary: Assemble parts, verify SHA-256 and size on the server, store at blobs/{sha256}
+      description: '`422 digest_mismatch` when the uploaded bytes do not hash to the declared digest (nothing is stored).'
       operationId: completeUpload
       responses:
-        '200':
-          description: Completed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Upload' }
+        '200': { $ref: '#/components/responses/Upload' }
         '422': { $ref: '#/components/responses/Error' }
 
   # ---------------------------------------------------------------- search
@@ -798,6 +998,21 @@ components:
               refreshToken: { type: string }
               expiresIn: { type: integer, description: Access token lifetime in seconds }
               user: { $ref: '#/components/schemas/User' }
+    Draft:
+      description: Stored draft and non-blocking warnings
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [release, warnings]
+            properties:
+              release: { $ref: '#/components/schemas/Release' }
+              warnings: { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
+    Upload:
+      description: Upload session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Upload' }
     Readiness:
       description: Dependency status
       content:
@@ -873,10 +1088,20 @@ components:
       type: object
       required: [id, slug, name, verified]
       properties:
-        id: { type: string, examples: [org.acme] }
+        id: { type: string, description: 'Publisher id used in manifests (= slug)', examples: [acme] }
         slug: { type: string }
         name: { type: string }
         verified: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        role: { type: string, enum: [owner, maintainer, uploader], description: Caller's role (membership listings only) }
+    Member:
+      type: object
+      required: [userId, name, email, role]
+      properties:
+        userId: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [owner, maintainer, uploader] }
     License:
       type: object
       required: [content, commercialUse, attributionRequired]
@@ -952,35 +1177,39 @@ components:
 
     Package:
       type: object
-      required: [id, publisher, slug, name, kind, latestVersion, license, taxonomy, technical, tags, downloads, createdAt, updatedAt]
+      description: Package row plus metadata of its latest published manifest (null / empty before the first release).
+      required: [id, publisher, slug, name, kind, description, visibility, latestVersion, createdAt, updatedAt, stats, tags]
       properties:
-        id: { type: string, examples: [org.acme.deep-house-toolkit] }
+        id: { type: string, description: '"<publisher>.<package>" — used in manifests and dependencies', examples: [acme.deep-house-toolkit] }
         publisher: { $ref: '#/components/schemas/Publisher' }
         slug: { $ref: '#/components/schemas/Slug' }
         name: { type: string }
         kind: { $ref: '#/components/schemas/PackageKind' }
         description: { type: string }
-        latestVersion: { $ref: '#/components/schemas/SemVer' }
-        license: { $ref: '#/components/schemas/License' }
-        taxonomy: { $ref: '#/components/schemas/Taxonomy' }
-        musical: { $ref: '#/components/schemas/Musical' }
-        technical: { $ref: '#/components/schemas/Technical' }
-        module: { $ref: '#/components/schemas/Module' }
-        tags: { type: array, items: { type: string } }
-        downloads: { type: integer }
-        rating: { type: number }
-        sampleCount: { type: integer }
-        sizeBytes: { type: integer }
+        visibility: { type: string, enum: [public, unlisted, private] }
+        latestVersion: { type: [string, 'null'], description: Highest published (not yanked) version }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        stats:
+          type: object
+          properties:
+            artifacts: { type: integer }
+            samples: { type: integer }
+            sizeBytes: { type: integer }
+        license: { oneOf: [{ $ref: '#/components/schemas/License' }, { type: 'null' }] }
+        taxonomy: { oneOf: [{ $ref: '#/components/schemas/Taxonomy' }, { type: 'null' }] }
+        musical: { oneOf: [{ $ref: '#/components/schemas/Musical' }, { type: 'null' }] }
+        technical: { oneOf: [{ $ref: '#/components/schemas/Technical' }, { type: 'null' }] }
+        module: { oneOf: [{ $ref: '#/components/schemas/Module' }, { type: 'null' }] }
         dependencies:
           type: array
           items:
             type: object
-            required: [packageId, range]
             properties:
-              packageId: { type: string }
+              id: { type: string }
               range: { type: string, examples: ['^1.0.0'] }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
+        tags: { type: array, items: { type: string } }
     PackagePage:
       type: object
       required: [items, total, page, limit]
@@ -992,13 +1221,22 @@ components:
 
     Release:
       type: object
-      required: [version, status, manifestDigest]
+      required: [version, status, manifestDigest, changelog, createdAt]
       properties:
         version: { $ref: '#/components/schemas/SemVer' }
         status: { type: string, enum: [draft, published, yanked] }
         publishedAt: { type: [string, 'null'], format: date-time }
         changelog: { type: string }
         manifestDigest: { $ref: '#/components/schemas/Digest' }
+        createdAt: { type: string, format: date-time }
+    ReleaseDetails:
+      allOf:
+        - $ref: '#/components/schemas/Release'
+        - type: object
+          required: [package, artifacts]
+          properties:
+            package: { type: string }
+            artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
     Artifact:
       type: object
       required: [kind, path, digest, size]
@@ -1008,46 +1246,34 @@ components:
         digest: { $ref: '#/components/schemas/Digest' }
         size: { type: integer }
         contentType: { type: string }
-        downloadUrl: { type: string, format: uri, description: Short-lived presigned URL }
+        downloadUrl: { type: string, format: uri, description: Short-lived presigned URL (published releases only) }
     Manifest:
       type: object
-      description: '`openaudio.package/v1`. `module` is required for module kinds and forbidden for sample-pack.'
-      required: [schema, id, name, kind, version, publisher, license, taxonomy, artifacts]
-      properties:
-        schema: { const: openaudio.package/v1 }
-        id: { type: string, pattern: '^[a-z0-9]+(\.[a-z0-9-]+)+$' }
-        name: { type: string }
-        kind: { $ref: '#/components/schemas/PackageKind' }
-        version: { $ref: '#/components/schemas/SemVer' }
-        description: { type: string }
-        publisher:
-          type: object
-          required: [id, name]
-          properties:
-            id: { type: string }
-            name: { type: string }
-        license: { $ref: '#/components/schemas/License' }
-        taxonomy: { $ref: '#/components/schemas/Taxonomy' }
-        musical: { $ref: '#/components/schemas/Musical' }
-        technical: { $ref: '#/components/schemas/Technical' }
-        module: { $ref: '#/components/schemas/Module' }
-        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
-        tags:
-          type: object
-          properties:
-            free: { type: array, items: { type: string } }
-
+      description: |
+        `openaudio.package/v1` manifest. The authoritative JSON Schema is served at
+        `GET /schemas/openaudio.package/v1` (api/internal/manifest/openaudio.package.v1.json).
+      additionalProperties: true
     Upload:
       type: object
-      required: [id, digest, size, status]
+      required: [id, digest, size, status, partSize, partCount, parts, createdAt]
       properties:
         id: { type: string, format: uuid }
         digest: { $ref: '#/components/schemas/Digest' }
         size: { type: integer }
-        partSize: { type: integer }
-        status: { type: string, enum: [pending, uploading, verifying, done, failed] }
-        partsUploaded: { type: integer }
-
+        contentType: { type: string }
+        status: { type: string, enum: [pending, done, failed] }
+        partSize: { type: integer, description: Every part except the last has exactly this size }
+        partCount: { type: integer, description: 0 when the blob is already stored }
+        parts: { type: array, items: { $ref: '#/components/schemas/UploadPart' } }
+        error: { type: string }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    UploadPart:
+      type: object
+      required: [number, size]
+      properties:
+        number: { type: integer }
+        size: { type: integer }
     FacetBucket:
       type: object
       required: [value, label, count]

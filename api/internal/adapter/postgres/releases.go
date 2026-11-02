@@ -17,7 +17,10 @@ func NewReleaseRepo(pool *pgxpool.Pool) *ReleaseRepo { return &ReleaseRepo{pool:
 
 var errImmutable = domain.Conflict("release_immutable", "only draft releases can be changed; publish a new version instead")
 
-const releaseColumns = `id, package_id, version, manifest, manifest_digest, changelog, status, published_at, created_by, published_by, created_at`
+// manifestBytes prefers the exact canonical bytes over the JSONB rendering.
+const manifestBytes = `COALESCE(manifest_canonical, convert_to(manifest::text, 'UTF8'))`
+
+const releaseColumns = `id, package_id, version, ` + manifestBytes + `, manifest_digest, changelog, status, published_at, created_by, published_by, created_at`
 
 func scanRelease(row pgx.Row) (*domain.Release, error) {
 	var r domain.Release
@@ -30,8 +33,8 @@ func scanRelease(row pgx.Row) (*domain.Release, error) {
 }
 
 func (s *ReleaseRepo) CreateDraft(ctx context.Context, r *domain.Release) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO releases (id, package_id, version, manifest, manifest_digest, changelog, status, created_by, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8)`, r.ID, r.PackageID, r.Version, r.Manifest, r.ManifestDigest, r.Changelog, r.CreatedBy, r.CreatedAt)
+	_, err := s.pool.Exec(ctx, `INSERT INTO releases (id, package_id, version, manifest, manifest_canonical, manifest_digest, changelog, status, created_by, created_at)
+		VALUES ($1,$2,$3,convert_from($4, 'UTF8')::jsonb,$4,$5,$6,'draft',$7,$8)`, r.ID, r.PackageID, r.Version, r.Manifest, r.ManifestDigest, r.Changelog, r.CreatedBy, r.CreatedAt)
 	if isUniqueViolation(err) {
 		return domain.ErrConflict
 	}
@@ -63,7 +66,8 @@ func (s *ReleaseRepo) List(ctx context.Context, packageID uuid.UUID) ([]domain.R
 }
 
 func (s *ReleaseRepo) UpdateDraft(ctx context.Context, id uuid.UUID, manifest []byte, digest, changelog string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE releases SET manifest = $2, manifest_digest = $3, changelog = $4 WHERE id = $1 AND status = 'draft'`,
+	tag, err := s.pool.Exec(ctx, `UPDATE releases SET manifest = convert_from($2, 'UTF8')::jsonb, manifest_canonical = $2, manifest_digest = $3, changelog = $4
+		WHERE id = $1 AND status = 'draft'`,
 		id, manifest, digest, changelog)
 	if err != nil {
 		return err

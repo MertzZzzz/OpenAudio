@@ -22,9 +22,12 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/adapter/s3"
 	"github.com/MertzZzzz/OpenAudio/api/internal/config"
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
+	"github.com/MertzZzzz/OpenAudio/api/internal/manifest"
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/logger"
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
 func main() {
@@ -93,6 +96,19 @@ func run() error {
 		return err
 	}
 
+	// Publishing & uploads
+	validator, err := manifest.NewValidator()
+	if err != nil {
+		return err
+	}
+	publisherRepo := postgres.NewPublisherRepo(pool)
+	pubSvc := publishing.NewService(publishing.Deps{
+		Users: postgres.NewUserRepo(pool), Publishers: publisherRepo, Packages: postgres.NewPackageRepo(pool),
+		Releases: postgres.NewReleaseRepo(pool), Blobs: storage, Validator: validator, Logger: log, DownloadTTL: cfg.DownloadTTL,
+	})
+	upSvc := uploads.NewService(uploads.Deps{Uploads: postgres.NewUploadRepo(pool), Publishers: publisherRepo, Blobs: storage, Logger: log},
+		uploads.Config{PartSize: cfg.UploadPartSize, MaxSize: cfg.MaxBlobSize})
+
 	var providers []oauth.Provider
 	callback := func(p string) string { return cfg.PublicURL + httpapi.APIPrefix + "/auth/oauth/" + p + "/callback" }
 	if cfg.Google.Enabled() {
@@ -110,7 +126,7 @@ func run() error {
 	stateMAC.Write([]byte("openaudio/oauth-state"))
 
 	handler := httpapi.NewHandler(httpapi.Options{
-		Auth: authSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
+		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
 		WebURL: cfg.WebURL, CORSOrigins: cfg.CORSOrigins, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy,
 		StateKey: stateMAC.Sum(nil), Limiter: httpapi.NewRateLimiter(10, 5),
 		Checks: []httpapi.HealthCheck{
@@ -123,9 +139,11 @@ func run() error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// Generous body timeouts: upload parts are up to UPLOAD_PART_SIZE and
+		// completing an upload re-hashes the whole blob.
+		ReadTimeout:  5 * time.Minute,
+		WriteTimeout: 10 * time.Minute,
+		IdleTimeout:  120 * time.Second,
 	}
 	errc := make(chan error, 1)
 	go func() {

@@ -29,7 +29,7 @@ func (r *PackageRepo) Create(ctx context.Context, p *domain.Package) error {
 const packageColumns = `
 SELECT p.id, p.publisher_id, pub.slug, pub.name, p.slug, p.name, p.kind, COALESCE(p.description, ''), p.latest_version,
        p.visibility, p.created_at, p.updated_at,
-       r.manifest, r.published_at,
+       COALESCE(r.manifest_canonical, convert_to(r.manifest::text, 'UTF8')), r.published_at,
        COALESCE(st.cnt, 0), COALESCE(st.samples, 0), COALESCE(st.size, 0)::bigint`
 
 const packageFrom = `

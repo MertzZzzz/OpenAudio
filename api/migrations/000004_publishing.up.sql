@@ -1,6 +1,9 @@
 -- Audit columns for releases (set while the row is still a draft, so the immutability trigger allows them).
 ALTER TABLE releases ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE releases ADD COLUMN published_by uuid REFERENCES users(id) ON DELETE SET NULL;
+-- Exact canonical bytes of the manifest. JSONB (releases.manifest) re-formats JSON, so the digest
+-- is computed over — and downloads are served from — this column; JSONB stays for querying.
+ALTER TABLE releases ADD COLUMN manifest_canonical bytea;
 
 CREATE OR REPLACE FUNCTION releases_enforce_immutability() RETURNS trigger AS $$
 BEGIN
@@ -8,6 +11,7 @@ BEGIN
     RETURN NEW;
   END IF;
   IF NEW.manifest IS DISTINCT FROM OLD.manifest
+     OR NEW.manifest_canonical IS DISTINCT FROM OLD.manifest_canonical
      OR NEW.manifest_digest IS DISTINCT FROM OLD.manifest_digest
      OR NEW.version IS DISTINCT FROM OLD.version
      OR NEW.package_id IS DISTINCT FROM OLD.package_id

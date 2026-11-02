@@ -12,6 +12,8 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/adapter/oauth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
 // TokenParser verifies access tokens.
@@ -26,11 +28,13 @@ type HealthCheck struct {
 }
 
 type Options struct {
-	Auth      *auth.Service
-	Tokens    TokenParser
-	Providers []oauth.Provider
-	Checks    []HealthCheck
-	Logger    *slog.Logger
+	Auth       *auth.Service
+	Publishing *publishing.Service
+	Uploads    *uploads.Service
+	Tokens     TokenParser
+	Providers  []oauth.Provider
+	Checks     []HealthCheck
+	Logger     *slog.Logger
 
 	WebURL       string // where the SPA lives; OAuth finishes at {WebURL}/auth/callback
 	CORSOrigins  []string
@@ -45,6 +49,8 @@ type Options struct {
 
 type API struct {
 	auth      *auth.Service
+	pub       *publishing.Service
+	up        *uploads.Service
 	tokens    TokenParser
 	providers map[domain.AuthProvider]oauth.Provider
 	order     []domain.AuthProvider
@@ -66,7 +72,7 @@ func NewHandler(o Options) http.Handler {
 		o.Now = time.Now
 	}
 	a := &API{
-		auth: o.Auth, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
+		auth: o.Auth, pub: o.Publishing, up: o.Uploads, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
 		providers: map[domain.AuthProvider]oauth.Provider{},
 	}
 	for _, p := range o.Providers {
@@ -107,6 +113,47 @@ func NewHandler(o Options) http.Handler {
 		})
 
 		r.With(a.requireAuth).Get("/me", a.me)
+
+		// Manifests
+		r.Get("/schemas/openaudio.package/v1", a.manifestSchema)
+		r.Post("/manifests/validate", a.validateManifest)
+
+		// Publishers
+		r.With(a.requireAuth).Post("/publishers", a.createPublisher)
+		r.With(a.requireAuth).Get("/me/publishers", a.myPublishers)
+		r.Route("/publishers/{publisher}", func(r chi.Router) {
+			r.Get("/", a.getPublisher)
+			r.With(a.requireAuth).Get("/packages", a.publisherPackages)
+			r.With(a.requireAuth).Get("/members", a.listMembers)
+			r.With(a.requireAuth).Post("/members", a.addMember)
+			r.With(a.requireAuth).Delete("/members/{userId}", a.removeMember)
+		})
+
+		// Packages & releases
+		r.Get("/packages", a.listPackages)
+		r.With(a.requireAuth).Post("/packages", a.createPackage)
+		r.Route("/packages/{publisher}/{slug}", func(r chi.Router) {
+			r.Get("/", a.getPackage)
+			r.With(a.requireAuth).Patch("/", a.updatePackage)
+			r.Get("/versions", a.listVersions)
+			r.Get("/versions/{version}/manifest", a.getManifest)
+			r.With(a.requireAuth).Post("/releases", a.createRelease)
+			r.Get("/releases/{version}", a.getRelease)
+			r.With(a.requireAuth).Put("/releases/{version}", a.updateRelease)
+			r.With(a.requireAuth).Delete("/releases/{version}", a.deleteRelease)
+			r.With(a.requireAuth).Post("/releases/{version}/publish", a.publishRelease)
+			r.With(a.requireAuth).Post("/releases/{version}/yank", a.yankRelease)
+		})
+
+		// Uploads
+		r.Route("/uploads", func(r chi.Router) {
+			r.Use(a.requireAuth)
+			r.Post("/", a.createUpload)
+			r.Get("/{uploadId}", a.getUpload)
+			r.Delete("/{uploadId}", a.abortUpload)
+			r.Put("/{uploadId}/parts/{partNumber}", a.putPart)
+			r.Post("/{uploadId}/complete", a.completeUpload)
+		})
 
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(a.requireRole(domain.RoleAdmin))

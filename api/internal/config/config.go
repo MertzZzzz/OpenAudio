@@ -56,6 +56,10 @@ type Config struct {
 	CookieSecure bool
 	AdminEmails  []string
 
+	UploadPartSize int64
+	MaxBlobSize    int64
+	DownloadTTL    time.Duration
+
 	Google  OAuthClient
 	Discord OAuthClient
 	SMTP    SMTP
@@ -135,6 +139,23 @@ func Load(getenv func(string) string) (Config, error) {
 		},
 	}
 	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", c.WebURL), "/")
+	c.DownloadTTL = duration("DOWNLOAD_URL_TTL", 10*time.Minute)
+	bytesVar := func(key string, def int64) int64 {
+		v := str(key, "")
+		if v == "" {
+			return def
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			errs = append(errs, fmt.Errorf("%s: must be a positive number of bytes", key))
+		}
+		return n
+	}
+	c.UploadPartSize = bytesVar("UPLOAD_PART_SIZE", 8<<20)
+	c.MaxBlobSize = bytesVar("MAX_BLOB_SIZE", 2<<30)
+	if c.UploadPartSize < 5<<20 {
+		errs = append(errs, errors.New("UPLOAD_PART_SIZE must be at least 5 MiB (S3 minimum part size)"))
+	}
 	c.CORSOrigins = list("CORS_ORIGINS")
 	if len(c.CORSOrigins) == 0 {
 		c.CORSOrigins = []string{c.WebURL}
