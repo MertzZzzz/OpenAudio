@@ -6,6 +6,36 @@ on:
   pull_request:
 
 jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openaudio
+          POSTGRES_PASSWORD: openaudio
+          POSTGRES_DB: openaudio_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U openaudio -d openaudio_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://openaudio:openaudio@localhost:5432/openaudio_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/api
+
   web:
     runs-on: ubuntu-latest
     defaults:

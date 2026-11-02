@@ -5,9 +5,9 @@
 | Path | What |
 |---|---|
 | `web/` | React 18 + TypeScript + Vite + Tailwind. Phase 1 prototype on a typed mock API. |
-| `api/` | Go backend (Phase 2+). Currently holds the OpenAPI contract. |
+| `api/` | Go backend: auth, migrations for all MVP tables, S3 adapter. Plus the OpenAPI contract. |
 | `docs/` | Design notes. |
-| `docker-compose.yml` | PostgreSQL 16, MinIO (+ bucket bootstrap), web; `--profile api` adds the Go API. |
+| `docker-compose.yml` | PostgreSQL 16, MinIO (+ bucket bootstrap), Go API, web (proxies `/api`). |
 
 ## Frontend
 
@@ -51,3 +51,9 @@ follows Tailwind's 4px grid (4/8/12/16/24/32/48). Dark theme is the default (`.l
 Components: Button, Input/Textarea/Field, Select, Checkbox, Badge, Card, Tabs (roving tabindex, arrow keys),
 Modal and Drawer (focus trap, Esc, focus restore, scroll lock), Table, Toast (aria-live), Skeleton,
 EmptyState, PackageCover, Waveform.
+
+## Authentication
+
+Real authentication runs against the Go API (`VITE_AUTH_MODE=http`, set by docker compose); without a backend the
+web app uses an in-memory mock with the same `AuthApi` interface (`features/auth/authApi.ts`). The catalog is still
+mocked until Phase 4/5. See [auth.md](auth.md).

@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Download, FileClock, Package as PackageIcon, Plus, Rocket, Star, Upload } from 'lucide-react';
 import type { Release } from '@/shared/types/domain';
-import { Button } from '@/shared/ui/Button';
+import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Badge } from '@/shared/ui/Badge';
 import { Card, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { Table, TBody, TD, TH, THead, TR } from '@/shared/ui/Table';
@@ -13,7 +13,7 @@ import { PackageCover } from '@/shared/ui/PackageCover';
 import { KIND_META } from '@/shared/lib/kinds';
 import { formatCount, formatDate, shortDigest } from '@/shared/lib/format';
 import { cn } from '@/shared/lib/cn';
-import { useSession } from '@/features/auth/session';
+import { useCurrentPublisherSlug } from '@/features/publisher/currentPublisher';
 import { packageHref } from '@/features/catalog/PackageCard';
 import { usePublisherPackages, useReleaseAction } from './api';
 import { CreatePackageModal } from './CreatePackageModal';
@@ -34,8 +34,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 }
 
 export function PublisherDashboardView() {
-  const session = useSession();
-  const publisher = session.publisherSlug ?? '';
+  const publisher = useCurrentPublisherSlug();
   const pkgs = usePublisherPackages(publisher);
   const action = useReleaseAction(publisher);
   const [createOpen, setCreateOpen] = useState(false);
@@ -58,9 +57,7 @@ export function PublisherDashboardView() {
           <Button variant="secondary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
             New package
           </Button>
-          <Link to="/publisher/upload">
-            <Button leftIcon={<Upload className="h-4 w-4" />}>Upload release</Button>
-          </Link>
+          <ButtonLink to="/publisher/upload" leftIcon={<Upload className="h-4 w-4" />}>Upload release</ButtonLink>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OpenAudio API
-  version: 0.1.0
+  version: 0.2.0
   summary: Catalog, publishing and versioning of open audio packages.
   description: |
     API-first contract for the OpenAudio MVP. The web app's mock layer
@@ -16,11 +16,17 @@ info:
     name: Apache-2.0
     identifier: Apache-2.0
 servers:
+  - url: http://localhost:5173/api/v1
+    description: Local, through the web dev-server proxy (docker compose up)
   - url: http://localhost:8080/api/v1
-    description: Local (docker compose --profile api)
+    description: Local, API directly
 tags:
   - name: system
+    description: Health and readiness probes
   - name: auth
+    description: Email/password, Google and Discord sign-in; sessions; email verification; password reset
+  - name: admin
+    description: Platform administration
   - name: packages
   - name: releases
   - name: uploads
@@ -33,28 +39,35 @@ paths:
   /health:
     get:
       tags: [system]
-      summary: Liveness / readiness
+      summary: Liveness
       security: []
       operationId: health
       responses:
         '200':
-          description: OK
+          description: Process is up
           content:
             application/json:
               schema:
                 type: object
                 required: [status]
                 properties:
-                  status: { type: string, enum: [ok, degraded] }
-                  checks:
-                    type: object
-                    additionalProperties: { type: string }
+                  status: { type: string, enum: [ok] }
+  /health/ready:
+    get:
+      tags: [system]
+      summary: Readiness (database, object storage)
+      security: []
+      operationId: ready
+      responses:
+        '200': { $ref: '#/components/responses/Readiness' }
+        '503': { $ref: '#/components/responses/Readiness' }
 
   # ------------------------------------------------------------------ auth
   /auth/register:
     post:
       tags: [auth]
-      summary: Create an account
+      summary: Create an account with email and password
+      description: Sends a verification email. Rate limited per client IP.
       operationId: register
       security: []
       requestBody:
@@ -63,19 +76,21 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [email, password, displayName]
               properties:
-                email: { type: string, format: email }
+                email: { type: string, format: email, maxLength: 254 }
                 password: { type: string, minLength: 10, maxLength: 128 }
                 displayName: { type: string, minLength: 1, maxLength: 64 }
       responses:
-        '201': { $ref: '#/components/responses/TokenPair' }
+        '201': { $ref: '#/components/responses/Session' }
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /auth/login:
     post:
       tags: [auth]
-      summary: Exchange credentials for tokens
+      summary: Sign in with email and password
       operationId: login
       security: []
       requestBody:
@@ -84,18 +99,63 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [email, password]
               properties:
                 email: { type: string, format: email }
                 password: { type: string }
       responses:
-        '200': { $ref: '#/components/responses/TokenPair' }
+        '200': { $ref: '#/components/responses/Session' }
         '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /auth/refresh:
     post:
       tags: [auth]
       summary: Rotate the refresh token and issue a new access token
+      description: |
+        The refresh token is read from the JSON body or, if absent, from the `oa_refresh` cookie.
+        Refresh tokens are single-use; presenting an already rotated token revokes the whole session family.
       operationId: refresh
+      security: []
+      parameters:
+        - { name: oa_refresh, in: cookie, required: false, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the session (refresh token family) and clear the cookie
+      operationId: logout
+      security: []
+      parameters:
+        - { name: oa_refresh, in: cookie, required: false, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: Signed out }
+        '422': { $ref: '#/components/responses/Error' }
+  /auth/email/verify:
+    post:
+      tags: [auth]
+      summary: Confirm an email address with the token from the verification email
+      operationId: verifyEmail
       security: []
       requestBody:
         required: true
@@ -103,30 +163,128 @@ paths:
           application/json:
             schema:
               type: object
-              required: [refreshToken]
+              additionalProperties: false
+              required: [token]
               properties:
-                refreshToken: { type: string }
+                token: { type: string }
       responses:
-        '200': { $ref: '#/components/responses/TokenPair' }
+        '204': { description: Verified }
         '401': { $ref: '#/components/responses/Error' }
-  /auth/logout:
+  /auth/email/resend:
     post:
       tags: [auth]
-      summary: Revoke the refresh token
-      operationId: logout
+      summary: Send a new verification email (invalidates older links)
+      operationId: resendVerification
+      responses:
+        '202': { description: Sent }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      summary: Request a password reset email
+      description: Always returns 202 so it cannot be used to discover registered emails.
+      operationId: forgotPassword
+      security: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              additionalProperties: false
+              required: [email]
               properties:
-                refreshToken: { type: string }
+                email: { type: string, format: email }
       responses:
-        '204': { description: Logged out }
+        '202': { description: Accepted }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      summary: Set a new password with a reset token; signs out all sessions
+      description: Also lets Google/Discord-only accounts add a password.
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '204': { description: Password changed }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /auth/providers:
+    get:
+      tags: [auth]
+      summary: Enabled sign-in methods
+      operationId: listAuthProviders
+      security: []
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email, oauth]
+                properties:
+                  email: { type: boolean }
+                  oauth:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, startUrl]
+                      properties:
+                        id: { $ref: '#/components/schemas/AuthProvider' }
+                        startUrl: { type: string, examples: [/api/v1/auth/oauth/google/start] }
+  /auth/oauth/{provider}/start:
+    parameters:
+      - $ref: '#/components/parameters/AuthProvider'
+    get:
+      tags: [auth]
+      summary: Begin sign-in with Google or Discord (browser navigation)
+      description: |
+        Sets a short-lived signed `oa_oauth` cookie (state, PKCE verifier, return path) and redirects to the provider.
+        `returnTo` must be a relative path; anything else falls back to `/`.
+      operationId: oauthStart
+      security: []
+      parameters:
+        - { name: returnTo, in: query, schema: { type: string, examples: [/library] } }
+      responses:
+        '302': { description: Redirect to the provider consent screen }
+        '404': { $ref: '#/components/responses/Error' }
+  /auth/oauth/{provider}/callback:
+    parameters:
+      - $ref: '#/components/parameters/AuthProvider'
+    get:
+      tags: [auth]
+      summary: Provider redirect target
+      description: |
+        Verifies state, exchanges the code, signs the user in (linking a verified email to an existing account),
+        sets the `oa_refresh` cookie and redirects to `{WEB_URL}/auth/callback?returnTo=…`.
+        On failure redirects to `{WEB_URL}/auth/callback?error=<code>` (e.g. `oauth_denied`, `oauth_state_mismatch`,
+        `oauth_email_missing`, `email_unverified_at_provider`). The SPA completes sign-in with `POST /auth/refresh`.
+      operationId: oauthCallback
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { description: Redirect back to the web app }
   /me:
     get:
       tags: [auth]
-      summary: Current user
+      summary: Current user with linked identities
       operationId: me
       responses:
         '200':
@@ -135,6 +293,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Error' }
+
+  # ----------------------------------------------------------------- admin
+  /admin/users/{id}/role:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [admin]
+      summary: Change a user's platform role (admin only)
+      operationId: setUserRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
 
   # -------------------------------------------------------------- packages
   /packages:
@@ -572,6 +758,7 @@ components:
 
   parameters:
     Publisher: { name: publisher, in: path, required: true, schema: { type: string } }
+    AuthProvider: { name: provider, in: path, required: true, schema: { $ref: '#/components/schemas/AuthProvider' } }
     Slug: { name: slug, in: path, required: true, schema: { $ref: '#/components/schemas/Slug' } }
     Version: { name: version, in: path, required: true, schema: { $ref: '#/components/schemas/SemVer' } }
     UploadId: { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -593,18 +780,36 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    TokenPair:
-      description: Access + refresh tokens
+    Session:
+      description: |
+        Access + refresh tokens. The refresh token is also set as the `oa_refresh` cookie
+        (HttpOnly, SameSite=Lax, Path=/api/v1/auth); browsers should rely on the cookie.
+      headers:
+        Set-Cookie:
+          schema: { type: string }
       content:
         application/json:
           schema:
             type: object
-            required: [accessToken, refreshToken, expiresIn, user]
+            required: [accessToken, tokenType, refreshToken, expiresIn, user]
             properties:
-              accessToken: { type: string }
+              accessToken: { type: string, description: 'JWT (HS256); send as Authorization: Bearer <token>' }
+              tokenType: { const: Bearer }
               refreshToken: { type: string }
               expiresIn: { type: integer, description: Access token lifetime in seconds }
               user: { $ref: '#/components/schemas/User' }
+    Readiness:
+      description: Dependency status
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status, checks]
+            properties:
+              status: { type: string, enum: [ok, degraded] }
+              checks:
+                type: object
+                additionalProperties: { type: string }
 
   schemas:
     Error:
@@ -629,14 +834,30 @@ components:
     SemVer: { type: string, pattern: '^\d+\.\d+\.\d+$' }
     Digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
 
+    Role: { type: string, enum: [user, publisher, admin] }
+    AuthProvider: { type: string, enum: [google, discord] }
     User:
       type: object
-      required: [id, email, displayName, role]
+      required: [id, email, displayName, role, emailVerified, hasPassword, createdAt]
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
         displayName: { type: string }
-        role: { type: string, enum: [user, publisher, admin] }
+        role: { $ref: '#/components/schemas/Role' }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        emailVerified: { type: boolean }
+        hasPassword: { type: boolean, description: false for accounts created via Google/Discord only }
+        identities:
+          type: array
+          description: Linked external accounts (only on GET /me)
+          items:
+            type: object
+            required: [provider, linkedAt]
+            properties:
+              provider: { $ref: '#/components/schemas/AuthProvider' }
+              email: { type: string }
+              linkedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
 
     PackageKind:
       type: string

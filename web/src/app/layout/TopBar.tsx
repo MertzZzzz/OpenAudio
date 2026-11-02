@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Menu, Search } from 'lucide-react';
 import { Input } from '@/shared/ui/Input';
 import { Drawer } from '@/shared/ui/Overlay';
-import { useSession } from '@/features/auth/session';
+import { UserMenu } from '@/features/auth/UserMenu';
 import { SidebarContent } from './Sidebar';
 
 export function Logo() {
@@ -23,7 +23,6 @@ export function TopBar() {
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
   const [menuOpen, setMenuOpen] = useState(false);
-  const user = useSession();
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -50,13 +49,7 @@ export function TopBar() {
           />
         </form>
         <div className="ml-auto flex items-center gap-3">
-          <span className="hidden text-caption text-fg-muted md:inline">{user.displayName}</span>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-accent text-caption font-bold text-white" aria-label={`Signed in as ${user.displayName}`} role="img">
-            {user.displayName
-              .split(' ')
-              .map((p) => p[0])
-              .join('')}
-          </div>
+          <UserMenu />
         </div>
       </div>
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} title="Navigation" className="left-0 right-auto border-l-0 border-r">

@@ -12,7 +12,7 @@ import { Skeleton } from '@/shared/ui/Skeleton';
 import { useToast } from '@/shared/ui/Toast';
 import { cn } from '@/shared/lib/cn';
 import { compare } from '@/shared/lib/semver';
-import { useSession } from '@/features/auth/session';
+import { useCurrentPublisherSlug } from '@/features/publisher/currentPublisher';
 import { usePublisherPackages } from '@/features/publisher/api';
 import { buildManifest } from './buildManifest';
 import { defaultValues, STEP_FIELDS, wizardSchema, type WizardValues } from './schema';
@@ -36,8 +36,7 @@ function bumpMinor(v: string): string {
 }
 
 export function UploadWizardView() {
-  const session = useSession();
-  const publisher = session.publisherSlug ?? '';
+  const publisher = useCurrentPublisherSlug();
   const packagesQ = usePublisherPackages(publisher);
   const [sp] = useSearchParams();
   const navigate = useNavigate();

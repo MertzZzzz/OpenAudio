@@ -1,6 +1,6 @@
-# Local development stack.
-#   docker compose up            → PostgreSQL, MinIO (+ bucket), web (Vite dev server, mock API)
-#   docker compose --profile api up   → also builds/starts the Go API (Phase 2+)
+# Local development stack:
+#   docker compose up   → PostgreSQL, MinIO (+ bucket), Go API, web (Vite dev server)
+# Open http://localhost:5173. The web container proxies /api to the API, so auth cookies are first-party.
 name: openaudio
 
 services:
@@ -54,17 +54,30 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
 
   api:
-    profiles: ["api"]
     build:
       context: ./api
-      dockerfile: Dockerfile
     environment:
+      APP_ENV: development
       HTTP_ADDR: ":8080"
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+      # Browsers reach the API through the Vite proxy on the web origin.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5173}
       DATABASE_URL: postgres://${POSTGRES_USER:-openaudio}:${POSTGRES_PASSWORD:-openaudio}@postgres:5432/${POSTGRES_DB:-openaudio}?sslmode=disable
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-openaudio}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
       S3_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
+      JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-OpenAudio <no-reply@openaudio.local>}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -84,6 +97,10 @@ services:
       - ./web/index.html:/app/index.html
     environment:
       CHOKIDAR_USEPOLLING: "true"
+      VITE_API_PROXY: http://api:8080
+      VITE_AUTH_MODE: http
+    depends_on:
+      - api
 
 volumes:
   pgdata:

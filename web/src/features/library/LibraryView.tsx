@@ -1,7 +1,6 @@
 import { useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Download, FileUp, Library as LibraryIcon, RefreshCw } from 'lucide-react';
-import { Button } from '@/shared/ui/Button';
+import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { Table, TBody, TH, THead } from '@/shared/ui/Table';
 import { Skeleton } from '@/shared/ui/Skeleton';
@@ -84,7 +83,7 @@ export function LibraryView() {
         {library.isLoading ? (
           <Skeleton className="h-64" />
         ) : items.length === 0 ? (
-          <EmptyState icon={<LibraryIcon className="h-6 w-6" />} title="Your library is empty" description="Add packages from the catalog to pin versions and generate a lockfile." action={<Link to="/"><Button>Discover packages</Button></Link>} />
+          <EmptyState icon={<LibraryIcon className="h-6 w-6" />} title="Your library is empty" description="Add packages from the catalog to pin versions and generate a lockfile." action={<ButtonLink to="/">Discover packages</ButtonLink>} />
         ) : (
           <Table>
             <THead>

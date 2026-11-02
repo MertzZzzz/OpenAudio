@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/shared/lib/cn';
 
@@ -27,6 +28,32 @@ const sizes: Record<ButtonSize, string> = {
   icon: 'h-9 w-9 justify-center',
 };
 
+export function buttonClasses({ variant = 'primary', size = 'md', className }: { variant?: ButtonVariant; size?: ButtonSize; className?: string } = {}): string {
+  return cn(
+    'inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded font-medium transition-colors',
+    'disabled:pointer-events-none disabled:opacity-50',
+    variants[variant],
+    sizes[size],
+    className,
+  );
+}
+
+export interface ButtonLinkProps extends LinkProps {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  leftIcon?: ReactNode;
+}
+
+/** A router link styled as a button (avoids invalid <a><button> nesting). */
+export function ButtonLink({ variant, size, leftIcon, className, children, ...rest }: ButtonLinkProps) {
+  return (
+    <Link className={buttonClasses({ variant, size, className })} {...rest}>
+      {leftIcon}
+      {children}
+    </Link>
+  );
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading = false, leftIcon, className, children, disabled, type = 'button', ...rest },
   ref,
@@ -37,13 +64,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded font-medium transition-colors',
-        'disabled:pointer-events-none disabled:opacity-50',
-        variants[variant],
-        sizes[size],
-        className,
-      )}
+      className={buttonClasses({ variant, size, className })}
       {...rest}
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : leftIcon}

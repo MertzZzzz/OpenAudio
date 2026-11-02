@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { BadgeCheck, Check, Copy, Download, FileJson, Library, PackageX, Plus, Star } from 'lucide-react';
-import { Button } from '@/shared/ui/Button';
+import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Badge } from '@/shared/ui/Badge';
 import { Select } from '@/shared/ui/Select';
 import { Modal } from '@/shared/ui/Overlay';
@@ -67,7 +67,7 @@ export function PackageDetailsView({ publisher, slug }: { publisher: string; slu
   }
 
   if (pkgQ.isError || !pkg) {
-    return <EmptyState icon={<PackageX className="h-6 w-6" />} title="Package not found" description={`${publisher}/${slug} does not exist or was removed.`} action={<Link to="/search"><Button variant="secondary">Back to search</Button></Link>} />;
+    return <EmptyState icon={<PackageX className="h-6 w-6" />} title="Package not found" description={`${publisher}/${slug} does not exist or was removed.`} action={<ButtonLink to="/search" variant="secondary">Back to search</ButtonLink>} />;
   }
 
   const installCmd = `openaudio add ${pkg.publisher.slug}/${pkg.slug}@${version}`;

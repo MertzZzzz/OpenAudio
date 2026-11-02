@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS package_taxonomy;
+DROP TABLE IF EXISTS taxonomy_terms;
+DROP TABLE IF EXISTS artifacts;
+DROP TRIGGER IF EXISTS releases_no_delete ON releases;
+DROP TRIGGER IF EXISTS releases_immutable ON releases;
+DROP TABLE IF EXISTS releases;
+DROP FUNCTION IF EXISTS releases_forbid_delete_published();
+DROP FUNCTION IF EXISTS releases_enforce_immutability();
+DROP TABLE IF EXISTS packages;
+DROP TABLE IF EXISTS publisher_members;
+DROP TABLE IF EXISTS publishers;
