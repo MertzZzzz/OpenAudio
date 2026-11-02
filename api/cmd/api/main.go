@@ -27,6 +27,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
@@ -102,12 +103,15 @@ func run() error {
 		return err
 	}
 	publisherRepo := postgres.NewPublisherRepo(pool)
+	packageRepo := postgres.NewPackageRepo(pool)
 	pubSvc := publishing.NewService(publishing.Deps{
-		Users: postgres.NewUserRepo(pool), Publishers: publisherRepo, Packages: postgres.NewPackageRepo(pool),
+		Users: postgres.NewUserRepo(pool), Publishers: publisherRepo, Packages: packageRepo,
 		Releases: postgres.NewReleaseRepo(pool), Blobs: storage, Validator: validator, Logger: log, DownloadTTL: cfg.DownloadTTL,
 	})
 	upSvc := uploads.NewService(uploads.Deps{Uploads: postgres.NewUploadRepo(pool), Publishers: publisherRepo, Blobs: storage, Logger: log},
 		uploads.Config{PartSize: cfg.UploadPartSize, MaxSize: cfg.MaxBlobSize})
+
+	searchSvc := search.NewService(search.Deps{Repo: postgres.NewSearchRepo(pool), Packages: packageRepo, Logger: log})
 
 	var providers []oauth.Provider
 	callback := func(p string) string { return cfg.PublicURL + httpapi.APIPrefix + "/auth/oauth/" + p + "/callback" }
@@ -126,7 +130,7 @@ func run() error {
 	stateMAC.Write([]byte("openaudio/oauth-state"))
 
 	handler := httpapi.NewHandler(httpapi.Options{
-		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
+		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
 		WebURL: cfg.WebURL, CORSOrigins: cfg.CORSOrigins, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy,
 		StateKey: stateMAC.Sum(nil), Limiter: httpapi.NewRateLimiter(10, 5),
 		Checks: []httpapi.HealthCheck{

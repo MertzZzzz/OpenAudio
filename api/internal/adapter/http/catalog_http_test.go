@@ -133,6 +133,16 @@ func TestPublishingFlowOverHTTP(t *testing.T) {
 		assert.NotEmpty(t, a.(map[string]any)["downloadUrl"])
 	}
 
+	// Downloads redirect to presigned URLs and are counted (manifest downloads are not).
+	w = r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/one-shots/kick.wav"})
+	require.Equal(t, http.StatusFound, w.Code, w.Body.String())
+	assert.Contains(t, w.Header().Get("Location"), "https://blobs.test/blobs/")
+	assert.Contains(t, w.Header().Get("Location"), "filename=kick.wav")
+	assert.Equal(t, http.StatusFound, r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/manifest.json"}).Code)
+	assert.Equal(t, http.StatusNotFound, r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit/releases/1.0.0/files/nope.wav"}).Code)
+	w = r.do(t, req{method: "GET", path: "/api/v1/packages/acme/kit"})
+	assert.EqualValues(t, 1, decode(t, w)["downloads"])
+
 	// Immutability over HTTP.
 	w = r.do(t, req{method: "PUT", path: "/api/v1/packages/acme/kit/releases/1.0.0", bearer: owner, body: map[string]any{"changelog": "edit"}})
 	assert.Equal(t, http.StatusConflict, w.Code)

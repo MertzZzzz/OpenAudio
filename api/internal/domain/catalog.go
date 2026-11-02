@@ -113,6 +113,7 @@ type PackageView struct {
 	ArtifactCount     int
 	SampleCount       int
 	TotalSize         int64
+	Downloads         int64
 }
 
 type PackageSort string
@@ -138,6 +139,8 @@ type PackageRepository interface {
 	Get(ctx context.Context, publisherSlug, slug string) (*PackageView, error)
 	List(ctx context.Context, f PackageFilter) ([]PackageView, int, error)
 	Update(ctx context.Context, id uuid.UUID, name, description, visibility string, at time.Time) error
+	// CountDownload increments the package's download counter (does not touch updated_at).
+	CountDownload(ctx context.Context, id uuid.UUID) error
 }
 
 /* -------------------------------------------------------------- releases */

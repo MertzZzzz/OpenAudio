@@ -13,6 +13,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/domain"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
@@ -31,6 +32,7 @@ type Options struct {
 	Auth       *auth.Service
 	Publishing *publishing.Service
 	Uploads    *uploads.Service
+	Search     *search.Service
 	Tokens     TokenParser
 	Providers  []oauth.Provider
 	Checks     []HealthCheck
@@ -51,6 +53,7 @@ type API struct {
 	auth      *auth.Service
 	pub       *publishing.Service
 	up        *uploads.Service
+	srch      *search.Service
 	tokens    TokenParser
 	providers map[domain.AuthProvider]oauth.Provider
 	order     []domain.AuthProvider
@@ -72,7 +75,7 @@ func NewHandler(o Options) http.Handler {
 		o.Now = time.Now
 	}
 	a := &API{
-		auth: o.Auth, pub: o.Publishing, up: o.Uploads, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
+		auth: o.Auth, pub: o.Publishing, up: o.Uploads, srch: o.Search, tokens: o.Tokens, checks: o.Checks, log: o.Logger, limiter: o.Limiter, opts: o, now: o.Now,
 		providers: map[domain.AuthProvider]oauth.Provider{},
 	}
 	for _, p := range o.Providers {
@@ -143,7 +146,14 @@ func NewHandler(o Options) http.Handler {
 			r.With(a.requireAuth).Delete("/releases/{version}", a.deleteRelease)
 			r.With(a.requireAuth).Post("/releases/{version}/publish", a.publishRelease)
 			r.With(a.requireAuth).Post("/releases/{version}/yank", a.yankRelease)
+			r.Get("/releases/{version}/files/*", a.downloadFile)
 		})
+
+		// Search
+		r.Get("/search", a.search)
+		r.Get("/search/facets", a.searchFacets)
+		r.Get("/search/samples", a.searchSamples)
+		r.Get("/taxonomy", a.taxonomy)
 
 		// Uploads
 		r.Route("/uploads", func(r chi.Router) {

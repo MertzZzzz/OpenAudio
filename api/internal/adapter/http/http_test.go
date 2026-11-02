@@ -27,6 +27,7 @@ import (
 	"github.com/MertzZzzz/OpenAudio/api/internal/platform/security"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/auth"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/publishing"
+	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/search"
 	"github.com/MertzZzzz/OpenAudio/api/internal/usecase/uploads"
 )
 
@@ -54,6 +55,7 @@ func (f *fakeProvider) Exchange(_ context.Context, code, verifier string) (*doma
 }
 
 type rig struct {
+	search  *fakeSearch
 	blobs   *memory.Blobs
 	h       http.Handler
 	mail    *mailer.Recorder
@@ -87,8 +89,10 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 	require.NoError(t, err)
 	pubSvc := publishing.NewService(publishing.Deps{Users: store.Users(), Publishers: cat.Publishers(), Packages: cat.Packages(), Releases: cat.Releases(), Blobs: blobs, Validator: validator, Logger: log})
 	upSvc := uploads.NewService(uploads.Deps{Uploads: cat.Uploads(), Publishers: cat.Publishers(), Blobs: blobs, Logger: log}, uploads.Config{PartSize: 4})
+	fs := &fakeSearch{}
+	searchSvc := search.NewService(search.Deps{Repo: fs, Packages: cat.Packages(), Logger: log})
 	h := httpapi.NewHandler(httpapi.Options{
-		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
+		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
 		WebURL: webURL, CORSOrigins: []string{webURL}, StateKey: []byte("state-key"), Limiter: limiter,
 		Checks: []httpapi.HealthCheck{{Name: "database", Check: func(context.Context) error {
 			if ok {
@@ -97,7 +101,7 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 			return errors.New("connection refused")
 		}}},
 	})
-	return &rig{h: h, mail: rec, google: google, checkOK: &ok, blobs: blobs}
+	return &rig{h: h, mail: rec, google: google, checkOK: &ok, blobs: blobs, search: fs}
 }
 
 type req struct {

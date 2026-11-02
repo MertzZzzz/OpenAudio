@@ -26,6 +26,7 @@ type Catalog struct {
 	terms      map[uuid.UUID][]domain.TaxonomyTerm
 	uploads    map[uuid.UUID]domain.Upload
 	parts      map[uuid.UUID]map[int]domain.UploadPart
+	downloads  map[uuid.UUID]int64
 }
 
 func NewCatalog(users *Store) *Catalog {
@@ -33,6 +34,7 @@ func NewCatalog(users *Store) *Catalog {
 		users: users, publishers: map[uuid.UUID]domain.Publisher{}, members: map[uuid.UUID]map[uuid.UUID]domain.MemberRole{},
 		packages: map[uuid.UUID]domain.Package{}, releases: map[uuid.UUID]domain.Release{}, artifacts: map[uuid.UUID][]domain.Artifact{},
 		terms: map[uuid.UUID][]domain.TaxonomyTerm{}, uploads: map[uuid.UUID]domain.Upload{}, parts: map[uuid.UUID]map[int]domain.UploadPart{},
+		downloads: map[uuid.UUID]int64{},
 	}
 }
 
@@ -40,6 +42,13 @@ func (c *Catalog) Publishers() domain.PublisherRepository { return (*publishers)
 func (c *Catalog) Packages() domain.PackageRepository     { return (*packages)(c) }
 func (c *Catalog) Releases() domain.ReleaseRepository     { return (*releases)(c) }
 func (c *Catalog) Uploads() domain.UploadRepository       { return (*uploads)(c) }
+
+// Downloads exposes the download counter for assertions.
+func (c *Catalog) Downloads(id uuid.UUID) int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.downloads[id]
+}
 
 // Terms exposes indexed taxonomy rows for assertions.
 func (c *Catalog) Terms(releaseID uuid.UUID) []domain.TaxonomyTerm {
@@ -168,7 +177,7 @@ func (r *packages) Create(_ context.Context, p *domain.Package) error {
 func (r *packages) view(p domain.Package) domain.PackageView {
 	pub := r.publishers[p.PublisherID]
 	p.PublisherSlug, p.PublisherName = pub.Slug, pub.Name
-	v := domain.PackageView{Package: p}
+	v := domain.PackageView{Package: p, Downloads: r.downloads[p.ID]}
 	if p.LatestVersion == nil {
 		return v
 	}
@@ -249,6 +258,17 @@ func (r *packages) List(_ context.Context, f domain.PackageFilter) ([]domain.Pac
 		end = total
 	}
 	return all[f.Offset:end], total, nil
+}
+
+// CountDownload increments the in-memory download counter.
+func (r *packages) CountDownload(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.packages[id]; !ok {
+		return domain.ErrNotFound
+	}
+	r.downloads[id]++
+	return nil
 }
 
 func contains(xs []string, x string) bool {

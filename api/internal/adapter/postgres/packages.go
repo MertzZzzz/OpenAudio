@@ -30,7 +30,7 @@ const packageColumns = `
 SELECT p.id, p.publisher_id, pub.slug, pub.name, p.slug, p.name, p.kind, COALESCE(p.description, ''), p.latest_version,
        p.visibility, p.created_at, p.updated_at,
        COALESCE(r.manifest_canonical, convert_to(r.manifest::text, 'UTF8')), r.published_at,
-       COALESCE(st.cnt, 0), COALESCE(st.samples, 0), COALESCE(st.size, 0)::bigint`
+       COALESCE(st.cnt, 0), COALESCE(st.samples, 0), COALESCE(st.size, 0)::bigint, p.download_count`
 
 const packageFrom = `
 FROM packages p
@@ -44,7 +44,7 @@ LEFT JOIN LATERAL (
 func scanPackage(row pgx.Row, extra ...any) (*domain.PackageView, error) {
 	var v domain.PackageView
 	dest := []any{&v.ID, &v.PublisherID, &v.PublisherSlug, &v.PublisherName, &v.Slug, &v.Name, &v.Kind, &v.Description, &v.LatestVersion,
-		&v.Visibility, &v.CreatedAt, &v.UpdatedAt, &v.LatestManifest, &v.LatestPublishedAt, &v.ArtifactCount, &v.SampleCount, &v.TotalSize}
+		&v.Visibility, &v.CreatedAt, &v.UpdatedAt, &v.LatestManifest, &v.LatestPublishedAt, &v.ArtifactCount, &v.SampleCount, &v.TotalSize, &v.Downloads}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, notFound(err)
 	}
@@ -112,4 +112,9 @@ func (r *PackageRepo) Update(ctx context.Context, id uuid.UUID, name, descriptio
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *PackageRepo) CountDownload(ctx context.Context, id uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `UPDATE packages SET download_count = download_count + 1 WHERE id = $1`, id)
+	return err
 }

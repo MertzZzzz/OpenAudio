@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OpenAudio API
-  version: 0.3.0
+  version: 0.4.0
   summary: Catalog, publishing and versioning of open audio packages.
   description: |
     API-first contract for the OpenAudio MVP. The web app's mock layer
@@ -36,6 +36,7 @@ tags:
   - name: uploads
     description: Resumable content-addressed blob uploads
   - name: search
+    description: Full-text and faceted search over packages and samples; controlled vocabulary
   - name: library
 security:
   - bearerAuth: []
@@ -814,48 +815,153 @@ paths:
   /search:
     get:
       tags: [search]
-      summary: Search packages by text, taxonomy and musical metadata
+      summary: Search packages (full text + taxonomy + musical metadata)
+      description: |
+        Full-text search over name, publisher, tags, taxonomy (slugs and labels) and description with prefix matching.
+        Words that name a vocabulary term or alias (e.g. `dnb`) also match packages tagged with it.
+        Genre / instrument / mood / use-case / category filters include sub-terms (`house` matches `deep-house`).
+        BPM filters match packages whose BPM (or BPM range) overlaps the requested range.
+        Only public packages with a published release are indexed (their latest release).
       operationId: search
       security: []
       parameters:
-        - { name: q, in: query, schema: { type: string } }
-        - { name: kind, in: query, schema: { type: array, items: { $ref: '#/components/schemas/PackageKind' } }, style: form, explode: false }
+        - $ref: '#/components/parameters/SearchQ'
+        - $ref: '#/components/parameters/SearchKind'
         - $ref: '#/components/parameters/ListGenre'
         - $ref: '#/components/parameters/ListInstrument'
         - $ref: '#/components/parameters/ListMood'
-        - { name: useCase, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
-        - { name: bpmMin, in: query, schema: { type: integer } }
-        - { name: bpmMax, in: query, schema: { type: integer } }
-        - { name: key, in: query, description: 'e.g. F-minor', schema: { type: array, items: { type: string } }, style: form, explode: false }
+        - $ref: '#/components/parameters/ListUseCase'
+        - $ref: '#/components/parameters/ListCategory'
+        - $ref: '#/components/parameters/ListModuleClass'
+        - $ref: '#/components/parameters/ListKey'
+        - $ref: '#/components/parameters/ListLicense'
+        - { name: publisher, in: query, schema: { type: string } }
+        - { name: commercial, in: query, schema: { type: boolean } }
+        - { name: bpmMin, in: query, schema: { type: integer, minimum: 20, maximum: 400 } }
+        - { name: bpmMax, in: query, schema: { type: integer, minimum: 20, maximum: 400 } }
         - { name: energyMin, in: query, schema: { type: number, minimum: 0, maximum: 1 } }
         - { name: energyMax, in: query, schema: { type: number, minimum: 0, maximum: 1 } }
-        - { name: license, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
-        - { name: contentType, in: query, schema: { type: string, enum: [loop, one-shot] } }
-        - { name: moduleClass, in: query, schema: { type: array, items: { $ref: '#/components/schemas/ModuleClass' } }, style: form, explode: false }
-        - { name: category, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
+        - { name: sort, in: query, description: 'Default: relevance with q, newest otherwise. `rating` falls back to downloads.', schema: { type: string, enum: [relevance, newest, downloads, name, rating] } }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
-        - { name: sort, in: query, schema: { type: string, enum: [relevance, newest, downloads, rating] } }
       responses:
         '200':
           description: Results
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PackagePage' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PackagePage'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/Package'
+                            - type: object
+                              properties:
+                                score: { type: number, description: Relevance (0 without q) }
+        '422': { $ref: '#/components/responses/Error' }
   /search/facets:
     get:
       tags: [search]
-      summary: Facet counts for the current query (each facet ignores its own selection)
+      summary: Facet counts for a search; each facet ignores its own selection
       operationId: searchFacets
       security: []
       parameters:
-        - { name: q, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/SearchQ'
+        - $ref: '#/components/parameters/SearchKind'
+        - $ref: '#/components/parameters/ListGenre'
+        - $ref: '#/components/parameters/ListInstrument'
+        - $ref: '#/components/parameters/ListMood'
+        - $ref: '#/components/parameters/ListUseCase'
+        - $ref: '#/components/parameters/ListCategory'
+        - $ref: '#/components/parameters/ListModuleClass'
+        - $ref: '#/components/parameters/ListKey'
+        - $ref: '#/components/parameters/ListLicense'
+        - { name: bpmMin, in: query, schema: { type: integer } }
+        - { name: bpmMax, in: query, schema: { type: integer } }
       responses:
         '200':
           description: Facets
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SearchFacets' }
+        '422': { $ref: '#/components/responses/Error' }
+  /search/samples:
+    get:
+      tags: [search]
+      summary: Search individual samples of the latest releases (metadata inherits package defaults)
+      operationId: searchSamples
+      security: []
+      parameters:
+        - { name: q, in: query, description: 'Name, path, package name, instrument or tag', schema: { type: string } }
+        - { name: package, in: query, description: 'Package id, e.g. acme.deep-house-toolkit', schema: { type: string } }
+        - $ref: '#/components/parameters/ListInstrument'
+        - { name: contentType, in: query, schema: { type: string, enum: [loop, one-shot] } }
+        - $ref: '#/components/parameters/ListKey'
+        - { name: bpmMin, in: query, schema: { type: integer } }
+        - { name: bpmMax, in: query, schema: { type: integer } }
+        - { name: durationMax, in: query, description: Seconds, schema: { type: number } }
+        - $ref: '#/components/parameters/Page'
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: Samples
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, page, limit]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Sample' } }
+                  total: { type: integer }
+                  page: { type: integer }
+                  limit: { type: integer }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /taxonomy:
+    get:
+      tags: [search]
+      summary: Controlled vocabulary (genres, instruments, moods, use cases, module categories)
+      operationId: getTaxonomy
+      security: []
+      responses:
+        '200':
+          description: Vocabulary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [taxonomyVersion, terms]
+                properties:
+                  taxonomyVersion: { type: string, examples: ['2026.11'] }
+                  terms:
+                    type: array
+                    items:
+                      type: object
+                      required: [domain, slug, label, aliases]
+                      properties:
+                        domain: { type: string, enum: [genre, instrument, mood, use-case, module-category] }
+                        slug: { type: string }
+                        label: { type: string }
+                        parent: { type: string }
+                        aliases: { type: array, items: { type: string } }
+  /packages/{publisher}/{slug}/releases/{version}/files/{path}:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+      - $ref: '#/components/parameters/Slug'
+      - $ref: '#/components/parameters/Version'
+      - { name: path, in: path, required: true, description: 'Artifact path; may contain slashes', schema: { type: string } }
+    get:
+      tags: [releases]
+      summary: Download one artifact (counts a download, redirects to a presigned URL)
+      operationId: downloadFile
+      security: []
+      responses:
+        '302': { description: Redirect to a short-lived presigned URL }
+        '404': { $ref: '#/components/responses/Error' }
 
   # --------------------------------------------------------------- library
   /libraries:
@@ -968,6 +1074,13 @@ components:
     ListGenre: { name: genre, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
     ListInstrument: { name: instrument, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
     ListMood: { name: mood, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
+    ListUseCase: { name: useCase, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
+    ListCategory: { name: category, in: query, description: Module categories, schema: { type: array, items: { type: string } }, style: form, explode: false }
+    ListModuleClass: { name: moduleClass, in: query, schema: { type: array, items: { $ref: '#/components/schemas/ModuleClass' } }, style: form, explode: false }
+    ListKey: { name: key, in: query, description: 'e.g. F-minor, C#-major', schema: { type: array, items: { type: string, pattern: '^(C|C#|D|D#|E|F|F#|G|G#|A|A#|B)-(major|minor)$' } }, style: form, explode: false }
+    ListLicense: { name: license, in: query, description: SPDX identifiers, schema: { type: array, items: { type: string } }, style: form, explode: false }
+    SearchQ: { name: q, in: query, schema: { type: string, maxLength: 200 } }
+    SearchKind: { name: kind, in: query, schema: { type: array, items: { $ref: '#/components/schemas/PackageKind' } }, style: form, explode: false }
 
   responses:
     Error:
@@ -1210,6 +1323,7 @@ components:
               id: { type: string }
               range: { type: string, examples: ['^1.0.0'] }
         tags: { type: array, items: { type: string } }
+        downloads: { type: integer }
     PackagePage:
       type: object
       required: [items, total, page, limit]
@@ -1283,16 +1397,39 @@ components:
         count: { type: integer }
     SearchFacets:
       type: object
+      description: Buckets sorted by count. `bpm` values are ranges like `120-129`.
       properties:
         kind: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         genre: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         instrument: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         mood: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
-        license: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+        useCase: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+        category: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         moduleClass: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         key: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+        license: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         bpm: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
-
+    Sample:
+      type: object
+      required: [id, packageId, packageName, version, name, file, digest, size, contentType, moods, tags, downloadUrl]
+      properties:
+        id: { type: string, examples: [acme.deep-house-toolkit/loops/bass.wav] }
+        packageId: { type: string }
+        packageName: { type: string }
+        version: { $ref: '#/components/schemas/SemVer' }
+        name: { type: string }
+        file: { type: string }
+        digest: { $ref: '#/components/schemas/Digest' }
+        size: { type: integer }
+        contentType: { type: string, enum: [loop, one-shot] }
+        instrument: { type: string }
+        role: { type: string }
+        bpm: { type: [integer, 'null'] }
+        key: { oneOf: [{ $ref: '#/components/schemas/MusicalKey' }, { type: 'null' }] }
+        durationSec: { type: [number, 'null'] }
+        moods: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        downloadUrl: { type: string, description: API path that counts the download and redirects to a presigned URL }
     LibraryItem:
       type: object
       required: [packageId, installedVersion, addedAt]

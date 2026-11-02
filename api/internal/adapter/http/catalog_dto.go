@@ -52,6 +52,7 @@ type packageDTO struct {
 	CreatedAt     time.Time       `json:"createdAt"`
 	UpdatedAt     time.Time       `json:"updatedAt"`
 	Stats         packageStatsDTO `json:"stats"`
+	Downloads     int64           `json:"downloads"`
 	License       json.RawMessage `json:"license"`
 	Taxonomy      json.RawMessage `json:"taxonomy"`
 	Musical       json.RawMessage `json:"musical"`
@@ -68,8 +69,9 @@ func toPackageDTO(v *domain.PackageView) packageDTO {
 		ID: v.CanonicalID(), Publisher: publisherDTO{ID: v.PublisherSlug, Slug: v.PublisherSlug, Name: v.PublisherName},
 		Slug: v.Slug, Name: v.Name, Kind: v.Kind, Description: v.Description, Visibility: v.Visibility,
 		LatestVersion: v.LatestVersion, PublishedAt: v.LatestPublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
-		Stats:   packageStatsDTO{Artifacts: v.ArtifactCount, Samples: v.SampleCount, SizeBytes: v.TotalSize},
-		License: jsonNull, Taxonomy: jsonNull, Musical: jsonNull, Technical: jsonNull, Module: jsonNull, Dependencies: json.RawMessage("[]"), Tags: []string{},
+		Stats:     packageStatsDTO{Artifacts: v.ArtifactCount, Samples: v.SampleCount, SizeBytes: v.TotalSize},
+		Downloads: v.Downloads,
+		License:   jsonNull, Taxonomy: jsonNull, Musical: jsonNull, Technical: jsonNull, Module: jsonNull, Dependencies: json.RawMessage("[]"), Tags: []string{},
 	}
 	if len(v.LatestManifest) == 0 {
 		return d

@@ -377,3 +377,37 @@ func (s *Service) Yank(ctx context.Context, actor Actor, publisherSlug, slug, ve
 	r.Status = domain.ReleaseYanked
 	return r, nil
 }
+
+/* ------------------------------------------------------------- download */
+
+// DownloadURL returns a short-lived presigned URL for one artifact of a published (or yanked)
+// release and counts the download. Manifest downloads are not counted.
+func (s *Service) DownloadURL(ctx context.Context, actor Actor, publisherSlug, slug, version, artifactPath string) (string, error) {
+	v, r, err := s.visibleRelease(ctx, actor, publisherSlug, slug, version)
+	if err != nil {
+		return "", err
+	}
+	if r.Status == domain.ReleaseDraft {
+		return "", domain.NotFound("artifact_not_found", "drafts have no downloadable files yet")
+	}
+	arts, err := s.Releases.Artifacts(ctx, r.ID)
+	if err != nil {
+		return "", internal(err)
+	}
+	for _, a := range arts {
+		if a.Path != artifactPath {
+			continue
+		}
+		u, err := s.Blobs.PresignGet(ctx, a.StorageKey, s.DownloadTTL, path.Base(a.Path))
+		if err != nil {
+			return "", internal(err)
+		}
+		if a.Kind != "manifest" {
+			if err := s.Packages.CountDownload(ctx, v.ID); err != nil {
+				s.Logger.WarnContext(ctx, "count download", "package", v.CanonicalID(), "err", err)
+			}
+		}
+		return u, nil
+	}
+	return "", domain.NotFound("artifact_not_found", "no such file in this release")
+}
