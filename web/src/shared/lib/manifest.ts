@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { MODULE_CLASSES, PACKAGE_KINDS, KEY_TONICS, type Module, type ValidationIssue } from '@/shared/types/domain';
+import { MODULE_CLASSES, PACKAGE_KINDS, KEY_TONICS, PLUGIN_ARCHES, PLUGIN_FORMATS, PLUGIN_OSES, type Module, type ValidationIssue } from '@/shared/types/domain';
 import { validateModule } from './moduleRules';
+import { validatePlugins } from './plugins';
 
 const signal = z.enum(['audio', 'midi', 'transport', 'automation', 'sidechain', 'analysis']);
 const MODULE_KINDS = ['instrument', 'effect', 'midi-tool', 'utility', 'model'] as const;
@@ -47,6 +48,18 @@ export const manifestSchema = z
         contentType: z.string().optional(),
       }),
     ),
+    plugins: z
+      .array(
+        z.object({
+          format: z.enum(PLUGIN_FORMATS),
+          bundle: z.string().min(1).regex(/\.(vst3|clap)$/i, 'bundle must end in .vst3 or .clap'),
+          os: z.enum(PLUGIN_OSES),
+          arch: z.array(z.enum(PLUGIN_ARCHES)).min(1, 'pick at least one architecture'),
+          pluginIds: z.array(z.string().min(1)).optional(),
+          minOsVersion: z.string().optional(),
+        }),
+      )
+      .optional(),
     tags: z.object({ free: z.array(z.string()) }).optional(),
   })
   .superRefine((m, ctx) => {
@@ -70,6 +83,7 @@ export function validateManifest(input: unknown): ValidationIssue[] {
   const m = parsed.data;
   const issues: ValidationIssue[] = [];
   if (m.module) issues.push(...validateModule({ ports: [], ...m.module } as Module));
+  issues.push(...validatePlugins(m.kind, m.artifacts, m.plugins ?? []));
   if (m.taxonomy.moods.length === 0) issues.push({ severity: 'warning', path: 'taxonomy.moods', message: 'add 1–3 moods to improve discoverability' });
   if (m.kind === 'sample-pack' && !m.musical?.bpm) issues.push({ severity: 'info', path: 'musical.bpm', message: 'no package-level BPM; per-sample BPM will be used' });
   if (m.artifacts.length === 0) issues.push({ severity: 'error', path: 'artifacts', message: 'release must contain at least one artifact' });

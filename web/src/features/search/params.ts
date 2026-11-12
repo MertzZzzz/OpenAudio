@@ -1,7 +1,7 @@
-import { MODULE_CLASSES, PACKAGE_KINDS, type ModuleClass, type PackageKind, type SearchParams, type SortOrder } from '@/shared/types/domain';
+import { MODULE_CLASSES, PACKAGE_KINDS, PLUGIN_FORMATS, PLUGIN_OSES, type ModuleClass, type PackageKind, type PluginFormat, type PluginOs, type SearchParams, type SortOrder } from '@/shared/types/domain';
 
 const SORTS: SortOrder[] = ['relevance', 'newest', 'downloads', 'rating'];
-export const LIST_KEYS = ['kind', 'genre', 'instrument', 'mood', 'license', 'moduleClass', 'key'] as const;
+export const LIST_KEYS = ['kind', 'genre', 'instrument', 'mood', 'license', 'moduleClass', 'pluginFormat', 'pluginOs', 'key'] as const;
 export type ListKey = (typeof LIST_KEYS)[number];
 
 const num = (v: string | null): number | undefined => {
@@ -25,6 +25,8 @@ export function parseSearchParams(sp: URLSearchParams): SearchParams {
     mood: list('mood'),
     license: list('license'),
     moduleClass: list('moduleClass')?.filter((k): k is ModuleClass => (MODULE_CLASSES as readonly string[]).includes(k)),
+    pluginFormat: list('pluginFormat')?.filter((f): f is PluginFormat => (PLUGIN_FORMATS as readonly string[]).includes(f)),
+    pluginOs: list('pluginOs')?.filter((o): o is PluginOs => (PLUGIN_OSES as readonly string[]).includes(o)),
     key: list('key'),
     bpmMin: num(sp.get('bpmMin')),
     bpmMax: num(sp.get('bpmMax')),

@@ -56,6 +56,8 @@ export interface ApiClient {
   listVersions(publisher: string, slug: string): Promise<Release[]>;
   getManifest(publisher: string, slug: string, version: string): Promise<Record<string, unknown>>;
   listArtifacts(publisher: string, slug: string, version: string): Promise<Artifact[]>;
+  /** URL that downloads a VST3/CLAP build as one zip; null when downloads are not available (mock API). */
+  bundleDownloadUrl(publisher: string, slug: string, version: string, bundle: string): string | null;
   searchSamples(query: SampleQuery): Promise<Sample[]>;
   taxonomy(): Promise<TaxonomyTerm[]>;
 

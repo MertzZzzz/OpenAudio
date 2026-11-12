@@ -1,6 +1,7 @@
 package http
 
 import (
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -92,6 +93,7 @@ func searchParams(r *http.Request) (search.Params, error) {
 		Q: p.q.Get("q"), Kinds: p.list("kind"), Genres: p.list("genre"), Instruments: p.list("instrument"),
 		Moods: p.list("mood"), UseCases: p.list("useCase"), Categories: p.list("category"),
 		ModuleClasses: p.list("moduleClass"), Keys: p.list("key"), Licenses: p.list("license"),
+		PluginFormats: p.list("pluginFormat"), PluginOS: p.list("pluginOs"),
 		Publisher: p.q.Get("publisher"), BPMMin: p.int("bpmMin"), BPMMax: p.int("bpmMax"),
 		EnergyMin: p.float("energyMin"), EnergyMax: p.float("energyMax"), Commercial: p.bool("commercial"),
 		Sort: p.q.Get("sort"), Page: p.intOr("page", 1), Limit: p.intOr("limit", 24),
@@ -142,7 +144,8 @@ func (a *API) searchFacets(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string][]facetBucketDTO{}
 	for _, name := range []string{domain.FacetKind, domain.FacetGenre, domain.FacetInstrument, domain.FacetMood, domain.FacetUseCase,
-		domain.FacetCategory, domain.FacetModuleClass, domain.FacetKey, domain.FacetLicense, domain.FacetBPM} {
+		domain.FacetCategory, domain.FacetModuleClass, domain.FacetKey, domain.FacetLicense, domain.FacetBPM,
+		domain.FacetPluginFormat, domain.FacetPluginOS} {
 		buckets := []facetBucketDTO{}
 		for _, b := range fs[name] {
 			buckets = append(buckets, facetBucketDTO{Value: b.Value, Label: b.Label, Count: b.Count})
@@ -264,6 +267,23 @@ func (a *API) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, u, http.StatusFound)
+}
+
+// downloadBundle streams a VST3/CLAP bundle (a folder of artifacts) as one zip.
+func (a *API) downloadBundle(w http.ResponseWriter, r *http.Request) {
+	pub, slug := pathPkg(r)
+	b, filename, err := a.pub.PluginBundle(r.Context(), actor(r), pub, slug, chi.URLParam(r, "version"), chi.URLParam(r, "*"))
+	if err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	w.Header().Set("Cache-Control", "private, no-store")
+	if err := a.pub.WriteZip(r.Context(), w, b); err != nil {
+		// Headers are gone; the client sees a truncated zip and the error stays in the log.
+		a.log.ErrorContext(r.Context(), "stream plug-in bundle", "bundle", b.Plugin.Bundle, "err", err)
+	}
 }
 
 // packagePreview redirects to playable audio of the latest release (used by play buttons).

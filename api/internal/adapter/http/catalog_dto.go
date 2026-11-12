@@ -58,6 +58,7 @@ type packageDTO struct {
 	Musical       json.RawMessage `json:"musical"`
 	Technical     json.RawMessage `json:"technical"`
 	Module        json.RawMessage `json:"module"`
+	Plugins       json.RawMessage `json:"plugins"`
 	Dependencies  json.RawMessage `json:"dependencies"`
 	Tags          []string        `json:"tags"`
 }
@@ -71,7 +72,7 @@ func toPackageDTO(v *domain.PackageView) packageDTO {
 		LatestVersion: v.LatestVersion, PublishedAt: v.LatestPublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
 		Stats:     packageStatsDTO{Artifacts: v.ArtifactCount, Samples: v.SampleCount, SizeBytes: v.TotalSize},
 		Downloads: v.Downloads,
-		License:   jsonNull, Taxonomy: jsonNull, Musical: jsonNull, Technical: jsonNull, Module: jsonNull, Dependencies: json.RawMessage("[]"), Tags: []string{},
+		License:   jsonNull, Taxonomy: jsonNull, Musical: jsonNull, Technical: jsonNull, Module: jsonNull, Plugins: json.RawMessage("[]"), Dependencies: json.RawMessage("[]"), Tags: []string{},
 	}
 	if len(v.LatestManifest) == 0 {
 		return d
@@ -90,6 +91,7 @@ func toPackageDTO(v *domain.PackageView) packageDTO {
 	pick(&d.Musical, "musical")
 	pick(&d.Technical, "technical")
 	pick(&d.Module, "module")
+	pick(&d.Plugins, "plugins")
 	pick(&d.Dependencies, "dependencies")
 	var tags struct {
 		Free []string `json:"free"`

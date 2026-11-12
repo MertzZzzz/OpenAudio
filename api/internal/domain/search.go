@@ -44,14 +44,18 @@ type SearchQuery struct {
 	ModuleClass []string
 	Keys        []string // "F-minor"
 	Licenses    []string
-	Commercial  *bool
-	BPMMin      *int
-	BPMMax      *int
-	EnergyMin   *float64
-	EnergyMax   *float64
-	Sort        SearchSort
-	Limit       int
-	Offset      int
+	// PluginFormats / PluginOS: the package ships a VST3/CLAP build in one of these formats
+	// for one of these operating systems (both given → a build matching both).
+	PluginFormats []string
+	PluginOS      []string
+	Commercial    *bool
+	BPMMin        *int
+	BPMMax        *int
+	EnergyMin     *float64
+	EnergyMax     *float64
+	Sort          SearchSort
+	Limit         int
+	Offset        int
 }
 
 // SearchHit is a package view with its relevance score and download count.
@@ -68,16 +72,18 @@ type FacetBucket struct {
 
 // Facet names; each facet is counted with every filter applied except its own.
 const (
-	FacetKind        = "kind"
-	FacetGenre       = "genre"
-	FacetInstrument  = "instrument"
-	FacetMood        = "mood"
-	FacetUseCase     = "useCase"
-	FacetCategory    = "category"
-	FacetModuleClass = "moduleClass"
-	FacetKey         = "key"
-	FacetLicense     = "license"
-	FacetBPM         = "bpm"
+	FacetKind         = "kind"
+	FacetGenre        = "genre"
+	FacetInstrument   = "instrument"
+	FacetMood         = "mood"
+	FacetUseCase      = "useCase"
+	FacetCategory     = "category"
+	FacetModuleClass  = "moduleClass"
+	FacetKey          = "key"
+	FacetLicense      = "license"
+	FacetBPM          = "bpm"
+	FacetPluginFormat = "pluginFormat"
+	FacetPluginOS     = "pluginOs"
 )
 
 type Facets map[string][]FacetBucket

@@ -838,6 +838,8 @@ paths:
         - $ref: '#/components/parameters/ListUseCase'
         - $ref: '#/components/parameters/ListCategory'
         - $ref: '#/components/parameters/ListModuleClass'
+        - $ref: '#/components/parameters/ListPluginFormat'
+        - $ref: '#/components/parameters/ListPluginOs'
         - $ref: '#/components/parameters/ListKey'
         - $ref: '#/components/parameters/ListLicense'
         - { name: publisher, in: query, schema: { type: string } }
@@ -883,6 +885,8 @@ paths:
         - $ref: '#/components/parameters/ListUseCase'
         - $ref: '#/components/parameters/ListCategory'
         - $ref: '#/components/parameters/ListModuleClass'
+        - $ref: '#/components/parameters/ListPluginFormat'
+        - $ref: '#/components/parameters/ListPluginOs'
         - $ref: '#/components/parameters/ListKey'
         - $ref: '#/components/parameters/ListLicense'
         - { name: bpmMin, in: query, schema: { type: integer } }
@@ -982,6 +986,30 @@ paths:
         - { name: preview, in: query, schema: { type: string, enum: ['1'] } }
       responses:
         '302': { description: Redirect to a short-lived presigned URL }
+        '404': { $ref: '#/components/responses/Error' }
+  /packages/{publisher}/{slug}/releases/{version}/bundles/{bundle}:
+    parameters:
+      - $ref: '#/components/parameters/Publisher'
+      - $ref: '#/components/parameters/Slug'
+      - $ref: '#/components/parameters/Version'
+      - { name: bundle, in: path, required: true, description: 'The `bundle` of a manifest `plugins[]` entry, e.g. `mac/Tape.vst3`; may contain slashes', schema: { type: string } }
+    get:
+      tags: [releases]
+      summary: Download a VST3/CLAP build as one zip (counts a download)
+      description: |
+        Streams every artifact of the bundle (a `.vst3`/`.clap` folder or single file) as a zip whose root is
+        the bundle itself (`Tape.vst3/Contents/…`), ready to unpack into a plug-in folder. Executables keep
+        their execute permission. Only bundles declared in the release manifest's `plugins` can be fetched.
+      operationId: downloadBundle
+      security: []
+      responses:
+        '200':
+          description: Zip archive
+          headers:
+            Content-Disposition: { schema: { type: string, examples: ['attachment; filename=acme-tape-1.0.0-vst3-macos.zip'] } }
+          content:
+            application/zip:
+              schema: { type: string, contentMediaType: application/zip }
         '404': { $ref: '#/components/responses/Error' }
 
   # --------------------------------------------------------------- library
@@ -1239,6 +1267,8 @@ components:
     ListMood: { name: mood, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
     ListUseCase: { name: useCase, in: query, schema: { type: array, items: { type: string } }, style: form, explode: false }
     ListCategory: { name: category, in: query, description: Module categories, schema: { type: array, items: { type: string } }, style: form, explode: false }
+    ListPluginFormat: { name: pluginFormat, in: query, description: Ships a VST3/CLAP build in one of these formats, schema: { type: array, items: { $ref: '#/components/schemas/PluginFormat' } }, style: form, explode: false }
+    ListPluginOs: { name: pluginOs, in: query, description: 'Ships a build for one of these OSes; with pluginFormat, one build must match both', schema: { type: array, items: { $ref: '#/components/schemas/PluginOs' } }, style: form, explode: false }
     ListModuleClass: { name: moduleClass, in: query, schema: { type: array, items: { $ref: '#/components/schemas/ModuleClass' } }, style: form, explode: false }
     ListKey: { name: key, in: query, description: 'e.g. F-minor, C#-major', schema: { type: array, items: { type: string, pattern: '^(C|C#|D|D#|E|F|F#|G|G#|A|A#|B)-(major|minor)$' } }, style: form, explode: false }
     ListLicense: { name: license, in: query, description: SPDX identifiers, schema: { type: array, items: { type: string } }, style: form, explode: false }
@@ -1478,6 +1508,7 @@ components:
         musical: { oneOf: [{ $ref: '#/components/schemas/Musical' }, { type: 'null' }] }
         technical: { oneOf: [{ $ref: '#/components/schemas/Technical' }, { type: 'null' }] }
         module: { oneOf: [{ $ref: '#/components/schemas/Module' }, { type: 'null' }] }
+        plugins: { type: array, items: { $ref: '#/components/schemas/PluginBuild' } }
         dependencies:
           type: array
           items:
@@ -1572,6 +1603,21 @@ components:
         key: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         license: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
         bpm: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+        pluginFormat: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+        pluginOs: { type: array, items: { $ref: '#/components/schemas/FacetBucket' } }
+    PluginFormat: { type: string, enum: [vst3, clap] }
+    PluginOs: { type: string, enum: [windows, macos, linux] }
+    PluginBuild:
+      type: object
+      description: One VST3/CLAP build (manifest `plugins[]`). Download it with `GET …/releases/{version}/bundles/{bundle}`.
+      required: [format, bundle, os, arch]
+      properties:
+        format: { $ref: '#/components/schemas/PluginFormat' }
+        bundle: { type: string, examples: ['mac/Tape.vst3'] }
+        os: { $ref: '#/components/schemas/PluginOs' }
+        arch: { type: array, items: { type: string, enum: [x86_64, arm64, arm64ec, i386] } }
+        pluginIds: { type: array, items: { type: string } }
+        minOsVersion: { type: string }
     Sample:
       type: object
       required: [id, packageId, packageName, version, name, file, digest, size, contentType, moods, tags, downloadUrl]

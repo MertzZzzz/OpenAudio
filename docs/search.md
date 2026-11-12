@@ -29,6 +29,7 @@ Controlled-vocabulary terms (taxonomy `2026.11`, with hierarchy and aliases) liv
 | `kind`, `moduleClass`, `key`, `license` | Any of the values |
 | `bpmMin`, `bpmMax` | Overlap with the package BPM or BPM range (`122–126` matches `bpmMin=125`) |
 | `energyMin`, `energyMax`, `commercial`, `publisher` | As named |
+| `pluginFormat`, `pluginOs` | Ships a VST3/CLAP build in that format / for that OS; with both, one build must match both ([plugins.md](plugins.md)) |
 | `sort` | `relevance` (default with `q`; `ts_rank_cd` + bonus for vocabulary matches), `newest` (default), `downloads`, `name`. `rating` falls back to downloads until ratings exist |
 | `page`, `limit` | `limit` ≤ 100 |
 
@@ -36,7 +37,7 @@ Lists accept `?kind=a,b` and `?kind=a&kind=b`.
 
 **Facets** (`GET /search/facets`, same parameters) count packages per value with every filter applied *except
 the facet's own*, so selected values never hide their alternatives. Buckets: kind, genre, instrument, mood,
-useCase, category, moduleClass, key, license and **bpm** (`0-79`, `80-99`, `100-119`, `120-129`, `130-139`,
+useCase, category, moduleClass, key, license, pluginFormat, pluginOs and **bpm** (`0-79`, `80-99`, `100-119`, `120-129`, `130-139`,
 `140-159`, `160-179`, `180-400`; a package counts in every bucket its BPM range overlaps, matching the filter).
 
 **Samples** (`GET /search/samples`): `q` (name, path, package name, instrument, tag), `package`

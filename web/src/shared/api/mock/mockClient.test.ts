@@ -83,3 +83,28 @@ describe('lockfiles (mock mirrors the API rules)', () => {
     await expect(createMockClient({ latencyMs: 0 }).saveLockfile()).rejects.toMatchObject({ code: 'resolve_conflicts' });
   });
 });
+
+describe('plug-in builds in the mock catalog', () => {
+  it('filters by format and platform with the server semantics', async () => {
+    const c = client();
+    const clapLinux = await c.searchPackages({ pluginFormat: ['clap'], pluginOs: ['linux'], limit: 50 });
+    expect(clapLinux.items.length).toBeGreaterThan(0);
+    expect(clapLinux.items.every((p) => p.plugins.some((b) => b.format === 'clap' && b.os === 'linux'))).toBe(true);
+    // No VST3 build for Linux exists in the demo data.
+    expect((await c.searchPackages({ pluginFormat: ['vst3'], pluginOs: ['linux'] })).total).toBe(0);
+    const facets = await c.searchFacets({ pluginOs: ['linux'] });
+    expect(facets.pluginFormat.map((b) => b.label)).toEqual(['CLAP']);
+    expect(facets.pluginOs.map((b) => b.value).sort()).toEqual(['linux', 'macos', 'windows']);
+  });
+
+  it('ships bundle files for each build', async () => {
+    const c = client();
+    const pkg = await c.getPackage('lattice', 'plate-verb');
+    expect(pkg.plugins.map((b) => `${b.format}/${b.os}`)).toEqual(['clap/macos', 'clap/windows', 'clap/linux', 'vst3/macos', 'vst3/windows']);
+    const arts = await c.listArtifacts('lattice', 'plate-verb', pkg.latestVersion);
+    expect(arts.map((a) => a.path)).toContain('macos/Plate Verb.vst3/Contents/MacOS/Plate Verb');
+    const manifest = await c.getManifest('lattice', 'plate-verb', pkg.latestVersion);
+    expect(await c.validateManifest(manifest)).toEqual(expect.not.arrayContaining([expect.objectContaining({ severity: 'error' })]));
+    expect(c.bundleDownloadUrl('lattice', 'plate-verb', pkg.latestVersion, pkg.plugins[0]!.bundle)).toBeNull();
+  });
+});

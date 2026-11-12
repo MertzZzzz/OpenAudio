@@ -17,6 +17,8 @@ const FACET_TITLES: Record<ListKey, string> = {
   mood: 'Mood',
   key: 'Key',
   license: 'License',
+  pluginFormat: 'Plug-in format',
+  pluginOs: 'Platform',
 };
 const BPM_PRESETS: FacetBucket[] = [
   { value: '80-99', label: '80–99', count: 0 },
@@ -25,7 +27,8 @@ const BPM_PRESETS: FacetBucket[] = [
   { value: '160-179', label: '160–179', count: 0 },
 ];
 
-const ORDER: ListKey[] = ['kind', 'moduleClass', 'genre', 'instrument', 'mood', 'key', 'license'];
+const OPTIONAL: ListKey[] = ['pluginFormat', 'pluginOs'];
+const ORDER: ListKey[] = ['kind', 'moduleClass', 'genre', 'instrument', 'mood', 'key', 'license', 'pluginFormat', 'pluginOs'];
 
 function FacetGroup({ facet, buckets, selected, onToggle }: { facet: ListKey; buckets: FacetBucket[]; selected: string[]; onToggle: (v: string) => void }) {
   const [open, setOpen] = useState(true);
@@ -151,9 +154,12 @@ export function FacetPanel({ params, facets, loading, onToggle, onBpm, onClear, 
               <FacetGroup key={k} facet={k} buckets={facets[k]} selected={params[k] ?? []} onToggle={(v) => onToggle(k, v)} />
             ))}
             <BpmRange min={params.bpmMin} max={params.bpmMax} onChange={onBpm} buckets={facets.bpm} />
-            {ORDER.slice(4).map((k) => (
-              <FacetGroup key={k} facet={k} buckets={facets[k]} selected={params[k] ?? []} onToggle={(v) => onToggle(k, v)} />
-            ))}
+            {ORDER.slice(4)
+              // Plug-in groups only appear when some result ships VST3/CLAP builds (or one is selected).
+              .filter((k) => !OPTIONAL.includes(k) || (facets[k]?.length ?? 0) > 0 || (params[k]?.length ?? 0) > 0)
+              .map((k) => (
+                <FacetGroup key={k} facet={k} buckets={facets[k] ?? []} selected={params[k] ?? []} onToggle={(v) => onToggle(k, v)} />
+              ))}
           </>
         )
       )}

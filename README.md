@@ -1,7 +1,7 @@
 # OpenAudio
 
 Open platform for publishing, discovering and versioning audio packages — sample packs, presets,
-instruments, effects, MIDI tools and (later) plugin modules.
+instruments, effects, MIDI tools and VST3 / CLAP plug-ins.
 
 > **Status:** MVP complete (phases 0–6): authentication (email, Google, Discord), publishing with
 > SHA-256-verified uploads and immutable releases, server-side search with facets, audio previews, and
@@ -49,6 +49,13 @@ by SHA-256 on the server, deduplicated by content), validate the manifest agains
 `openaudio.package/v1` JSON Schema, publish immutable releases, yank. Roles: owner / maintainer / uploader.
 Flow, API and curl examples: [`docs/publishing.md`](docs/publishing.md).
 
+## VST3 & CLAP plug-ins
+
+Instrument, effect, MIDI-tool and utility packages can ship VST3 and CLAP builds for Windows, macOS and Linux.
+Upload the whole `.vst3` / `.clap` folder; the wizard detects format, OS and architectures from the bundle
+layout and executable headers. Each build downloads as one zip; search filters by format and platform.
+OpenAudio distributes plug-ins, your DAW runs them. Details: [`docs/plugins.md`](docs/plugins.md).
+
 ## Libraries & lockfiles
 
 Personal libraries with pinned versions, a resolver over per-version manifest dependencies (conflicts are explained
@@ -58,7 +65,7 @@ against the registry. Details: [`docs/library.md`](docs/library.md).
 ## Search
 
 PostgreSQL full-text search (prefix matching, taxonomy aliases such as `dnb`, genre hierarchy) with filters for
-kind, genre, instrument, mood, BPM, key, license and module class; facets that ignore their own selection; sample
+kind, genre, instrument, mood, BPM, key, license, module class and plug-in format / platform; facets that ignore their own selection; sample
 search with metadata inherited from the package; counted downloads. Details: [`docs/search.md`](docs/search.md).
 
 ## What's in the prototype

@@ -69,6 +69,11 @@ digest as ETag, so clients can verify what they download.
   previous published version) while existing lockfiles can still download it.
 - `GET …/releases/{version}` lists artifacts with short-lived presigned download URLs (`DOWNLOAD_URL_TTL`).
 
+## Plug-ins
+
+VST3 / CLAP builds are described in the manifest's `plugins[]` and downloaded per build as a zip — see
+[plugins.md](plugins.md).
+
 ## Example with curl
 
 ```bash

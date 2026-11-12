@@ -104,10 +104,15 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
         ...(p.musical ? { musical: p.musical } : {}),
         technical: p.technical,
         ...(p.module ? { module: p.module } : {}),
+        ...(p.plugins.length ? { plugins: p.plugins } : {}),
         ...(p.dependencies.length ? { dependencies: p.dependencies } : {}),
         artifacts: artifactsFor(p, version).filter((a) => a.kind !== 'manifest'),
         tags: { free: p.tags },
       });
+    },
+
+    bundleDownloadUrl() {
+      return null; // the mock API has no bytes to zip
     },
 
     listArtifacts(publisher, slug, version) {
@@ -212,6 +217,7 @@ export function createMockClient({ latencyMs = 250 }: MockOptions = {}): ApiClie
         license: { content: 'CC-BY-4.0', commercialUse: true, attributionRequired: true },
         taxonomy: { genres: { primary: 'electronic', secondary: [] }, instruments: [], moods: [], useCases: [] },
         technical: { formats: [] },
+        plugins: [],
         tags: [],
         downloads: 0,
         rating: 0,

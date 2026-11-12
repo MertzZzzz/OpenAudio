@@ -1,5 +1,6 @@
 import type { Package } from '@/shared/types/domain';
 import { MODULE_KINDS, type WizardValues } from './schema';
+import { bundleRoot } from './detectPlugins';
 
 /**
  * Form values come straight from inputs (react-hook-form `watch`), so numeric fields may still
@@ -34,7 +35,15 @@ export function buildManifest(v: WizardValues, pkg: Pick<Package, 'id' | 'name' 
   if (v.keyTonic) musical.key = { tonic: v.keyTonic, mode: v.keyMode };
   if (v.timeSignature) musical.timeSignature = v.timeSignature;
 
-  const formats = [...new Set(v.files.map((f) => f.path.split('.').pop()?.toLowerCase() ?? '').filter(Boolean))];
+  // Files inside a .vst3/.clap bundle are plug-in binaries; their own extensions (.plist, .so) are not formats.
+  const inBundle = (path: string) => bundleRoot(path) !== null;
+  const formats = [
+    ...new Set(
+      [...v.plugins.map((p) => p.format), ...v.files.filter((f) => !inBundle(f.path)).map((f) => f.path.split('.').pop()?.toLowerCase() ?? '')].filter((f) =>
+        /^[a-z0-9][a-z0-9.+-]*$/.test(f),
+      ),
+    ),
+  ];
 
   return {
     schema: 'openaudio.package/v1',
@@ -66,12 +75,20 @@ export function buildManifest(v: WizardValues, pkg: Pick<Package, 'id' | 'name' 
     artifacts: v.files
       .filter((f) => f.digest)
       .map((f) => ({
-        kind: f.contentType.startsWith('audio/') ? 'sample' : 'binary',
+        kind: !inBundle(f.path) && f.contentType.startsWith('audio/') ? 'sample' : 'binary',
         path: f.path,
         digest: f.digest,
         size: f.size,
         contentType: f.contentType,
       })),
+    ...(v.plugins.length
+      ? {
+          plugins: v.plugins.map((p) => {
+            const ids = [...new Set((p.pluginIds ?? []).map((x) => x.trim()).filter(Boolean))];
+            return { format: p.format, bundle: p.bundle, os: p.os, arch: p.arch, ...(ids.length ? { pluginIds: ids } : {}) };
+          }),
+        }
+      : {}),
     tags: {
       free: v.freeTags
         .split(',')

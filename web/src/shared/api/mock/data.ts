@@ -10,6 +10,8 @@ import type {
   PublisherMember,
   Release,
   Sample,
+  PluginBuild,
+  PluginFormat,
 } from '@/shared/types/domain';
 import { compare } from '@/shared/lib/semver';
 
@@ -91,11 +93,27 @@ const pub = (slug: string): Publisher => publishers.find((p) => p.slug === slug)
 
 /* ----------------------------------------------------------------- packages */
 
-type PackageSeed = Omit<Package, 'id' | 'createdAt' | 'updatedAt' | 'dependencies' | 'technical' | 'tags' | 'rating'> &
+type PackageSeed = Omit<Package, 'id' | 'createdAt' | 'updatedAt' | 'dependencies' | 'technical' | 'tags' | 'rating' | 'plugins'> &
   Partial<Pick<Package, 'dependencies' | 'technical' | 'tags' | 'rating'>> & { daysAgo: number; ageDays: number };
 
 const NOW = Date.parse('2026-11-01T12:00:00Z');
 const day = 86_400_000;
+
+/**
+ * Demo VST3/CLAP builds for module packages, derived from technical.formats:
+ * macOS universal bundles for both formats, Windows x64 VST3/CLAP, Linux x64 CLAP.
+ */
+function mockPlugins(seed: PackageSeed): PluginBuild[] {
+  if (!seed.module) return [];
+  const formats = (seed.technical?.formats ?? []).filter((f): f is PluginFormat => f === 'vst3' || f === 'clap');
+  const out: PluginBuild[] = [];
+  for (const format of formats) {
+    out.push({ format, bundle: `macos/${seed.name}.${format}`, os: 'macos', arch: ['arm64', 'x86_64'] });
+    out.push({ format, bundle: `windows/${seed.name}.${format}`, os: 'windows', arch: ['x86_64'] });
+    if (format === 'clap') out.push({ format, bundle: `linux/${seed.slug}.clap`, os: 'linux', arch: ['x86_64'] });
+  }
+  return out;
+}
 
 function makePackage(seed: PackageSeed): Package {
   const { daysAgo, ageDays, ...rest } = seed;
@@ -104,6 +122,7 @@ function makePackage(seed: PackageSeed): Package {
     tags: [],
     rating: 4.5,
     dependencies: [],
+    plugins: mockPlugins(seed),
     ...rest,
     id: `${seed.publisher.id}.${seed.slug}`,
     updatedAt: new Date(NOW - daysAgo * day).toISOString(),
@@ -403,9 +422,23 @@ export function artifactsFor(pkg: Package, version: string): Artifact[] {
     contentType: 'application/json',
   };
   if (pkg.module) {
+    const files = (b: PluginBuild): string[] => {
+      if (b.os === 'macos') return [`${b.bundle}/Contents/Info.plist`, `${b.bundle}/Contents/MacOS/${pkg.name}`];
+      if (b.format === 'vst3') return b.arch.map((a) => `${b.bundle}/Contents/${a}-win/${pkg.name}.vst3`);
+      return [b.bundle];
+    };
+    const bundled = pkg.plugins.flatMap(files);
+    const each = Math.round(pkg.sizeBytes / Math.max(1, bundled.length + 1));
     return [
       manifest,
-      ...pkg.technical.formats.map<Artifact>((f) => ({
+      ...bundled.map<Artifact>((path) => ({
+        kind: 'binary',
+        path,
+        digest: fakeDigest(`${pkg.id}@${version}/${path}`),
+        size: path.endsWith('.plist') ? 1_200 : each,
+        contentType: 'application/octet-stream',
+      })),
+      ...pkg.technical.formats.filter((f) => f !== 'vst3' && f !== 'clap').map<Artifact>((f) => ({
         kind: 'binary',
         path: `bin/${pkg.slug}.${f}`,
         digest: fakeDigest(`${pkg.id}@${version}/${f}`),

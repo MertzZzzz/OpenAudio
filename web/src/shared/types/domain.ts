@@ -85,6 +85,24 @@ export interface Technical {
   formats: string[];
 }
 
+export const PLUGIN_FORMATS = ['vst3', 'clap'] as const;
+export type PluginFormat = (typeof PLUGIN_FORMATS)[number];
+export const PLUGIN_OSES = ['windows', 'macos', 'linux'] as const;
+export type PluginOs = (typeof PLUGIN_OSES)[number];
+export const PLUGIN_ARCHES = ['x86_64', 'arm64', 'arm64ec', 'i386'] as const;
+export type PluginArch = (typeof PLUGIN_ARCHES)[number];
+
+/** One VST3/CLAP build of a release (manifest `plugins[]`). */
+export interface PluginBuild {
+  format: PluginFormat;
+  /** Path of the .vst3/.clap bundle folder (or single file) inside the release. */
+  bundle: string;
+  os: PluginOs;
+  arch: PluginArch[];
+  pluginIds?: string[];
+  minOsVersion?: string;
+}
+
 export interface Taxonomy {
   genres: { primary: string; secondary: string[] };
   instruments: string[];
@@ -119,6 +137,8 @@ export interface Package {
   musical?: Musical;
   technical: Technical;
   module?: Module;
+  /** VST3/CLAP builds of the latest release. */
+  plugins: PluginBuild[];
   tags: string[];
   downloads: number;
   rating: number;
@@ -264,6 +284,8 @@ export interface SearchParams {
   mood?: string[];
   license?: string[];
   moduleClass?: ModuleClass[];
+  pluginFormat?: PluginFormat[];
+  pluginOs?: PluginOs[];
   key?: string[];
   bpmMin?: number;
   bpmMax?: number;
@@ -288,6 +310,8 @@ export interface SearchFacets {
   key: FacetBucket[];
   /** BPM ranges, values like "120-129". */
   bpm: FacetBucket[];
+  pluginFormat: FacetBucket[];
+  pluginOs: FacetBucket[];
 }
 
 export interface SampleQuery {

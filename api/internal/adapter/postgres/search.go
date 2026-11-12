@@ -86,6 +86,7 @@ func where(a *args, q domain.SearchQuery, skip string) ([]string, string, string
 			conds = append(conds, taxonomyCond(a, dom, vals))
 		}
 	}
+	conds = append(conds, pluginConds(a, q, skip)...)
 	if q.Publisher != "" {
 		conds = append(conds, `s.publisher_slug = `+a.add(q.Publisher))
 	}
@@ -108,6 +109,40 @@ func where(a *args, q domain.SearchQuery, skip string) ([]string, string, string
 		conds = append(conds, `s.energy <= `+a.add(*q.EnergyMax))
 	}
 	return conds, tsArg, aliasArg
+}
+
+// pluginConds filters on VST3/CLAP builds. With both a format and an OS, a single build must
+// match both ("vst3 for macOS", not "some vst3 and something for macOS").
+func pluginConds(a *args, q domain.SearchQuery, skip string) []string {
+	formats, oses := q.PluginFormats, q.PluginOS
+	if skip == domain.FacetPluginFormat {
+		formats = nil
+	}
+	if skip == domain.FacetPluginOS {
+		oses = nil
+	}
+	switch {
+	case len(formats) > 0 && len(oses) > 0:
+		var builds []string
+		for _, f := range formats {
+			for _, o := range oses {
+				builds = append(builds, f+":"+o)
+			}
+		}
+		return []string{`s.plugin_builds && ` + a.add(builds) + `::text[]`}
+	case len(formats) > 0:
+		return []string{`s.plugin_formats && ` + a.add(formats) + `::text[]`}
+	case len(oses) > 0:
+		return []string{`s.plugin_os && ` + a.add(oses) + `::text[]`}
+	}
+	return nil
+}
+
+func andSQL(conds []string) string {
+	if len(conds) == 0 {
+		return ""
+	}
+	return " AND " + strings.Join(conds, " AND ")
 }
 
 func whereSQL(conds []string) string {
@@ -205,6 +240,29 @@ func (r *SearchRepo) Facets(ctx context.Context, q domain.SearchQuery) (domain.F
 			` ON COALESCE(s.bpm_max, s.bpm) >= b.lo AND COALESCE(s.bpm_min, s.bpm) <= b.hi` + whereSQL(conds) +
 			` GROUP BY b.v, b.lo ORDER BY b.lo`
 		if err := count(domain.FacetBPM, sql, a); err != nil {
+			return nil, err
+		}
+	}
+	// Plug-in facets count packages per format (or OS) among builds that match the other
+	// plug-in filter, consistent with pluginConds.
+	for facet, part := range map[string]struct {
+		self  int
+		other []string
+	}{
+		domain.FacetPluginFormat: {1, q.PluginOS},
+		domain.FacetPluginOS:     {2, q.PluginFormats},
+	} {
+		a := &args{}
+		conds, _, _ := where(a, q, facet)
+		other := 3 - part.self
+		buildCond := ""
+		if len(part.other) > 0 {
+			buildCond = ` AND split_part(b, ':', ` + strconv.Itoa(other) + `) = ANY(` + a.add(part.other) + `::text[])`
+		}
+		sql := `SELECT split_part(b, ':', ` + strconv.Itoa(part.self) + `) AS v, count(DISTINCT s.package_id)
+			FROM package_search s CROSS JOIN LATERAL unnest(s.plugin_builds) AS b
+			WHERE true` + buildCond + andSQL(conds) + ` GROUP BY 1 ORDER BY 2 DESC, 1`
+		if err := count(facet, sql, a); err != nil {
 			return nil, err
 		}
 	}

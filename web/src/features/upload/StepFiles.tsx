@@ -1,12 +1,15 @@
-import { useCallback, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { useFormContext } from 'react-hook-form';
-import { CheckCircle2, FileAudio, Loader2, Trash2, UploadCloud } from 'lucide-react';
+import { CheckCircle2, FileAudio, FolderUp, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { Button } from '@/shared/ui/Button';
 import { formatBytes, shortDigest } from '@/shared/lib/format';
 import { cn } from '@/shared/lib/cn';
 import { api } from '@/shared/api';
 import { sha256File } from './hash';
 import type { WizardValues } from './schema';
+import { detectPlugins, isExecutableCandidate, mergePlugins, sniffFile } from './detectPlugins';
+import { collectDropped, isJunk, type PickedFile } from './pickFiles';
+import { PluginBuildsEditor } from './PluginBuildsEditor';
 
 const ACCEPT = '.wav,.flac,.aif,.aiff,.mp3,.json,.mid,.clap,.vst3,.onnx,.zip';
 
@@ -20,6 +23,34 @@ function guessType(name: string, type: string): string {
   return 'application/octet-stream';
 }
 
+/** At most this many files hash/upload at once (a plug-in bundle can hold hundreds of files). */
+const CONCURRENCY = 4;
+
+function limiter(max: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  const next = () => {
+    if (active >= max) return;
+    const run = queue.shift();
+    if (run) {
+      active += 1;
+      run();
+    }
+  };
+  return <T,>(task: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            active -= 1;
+            next();
+          });
+      });
+      next();
+    });
+}
+
 /**
  * Files are hashed client-side (SHA-256) and uploaded in resumable parts; the server re-hashes
  * the assembled blob and stores it at `blobs/{sha256}`. Already-stored content is skipped.
@@ -30,6 +61,22 @@ export function StepFiles() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const limit = useRef(limiter(CONCURRENCY)).current;
+
+  // Not in React's typings; lets the picker select whole folders (.vst3/.clap bundles are folders).
+  useEffect(() => {
+    folderRef.current?.setAttribute('webkitdirectory', '');
+    folderRef.current?.setAttribute('directory', '');
+  }, []);
+
+  // Keep plugins[] in step with the uploaded bundles (user edits are preserved).
+  const pathsKey = fields.map((f) => `${f.path}|${f.binary?.os ?? ''}|${f.binary?.arch.join('+') ?? ''}`).join('\n');
+  useEffect(() => {
+    const files = getValues('files');
+    const next = mergePlugins(getValues('plugins'), detectPlugins(files), files.map((f) => f.path));
+    if (JSON.stringify(next) !== JSON.stringify(getValues('plugins'))) setValue('plugins', next, { shouldDirty: true });
+  }, [pathsKey, getValues, setValue]);
 
   const patch = useCallback(
     (id: string, p: Partial<WizardValues['files'][number]>) => {
@@ -41,17 +88,18 @@ export function StepFiles() {
   );
 
   const addFiles = useCallback(
-    (list: FileList | File[]) => {
-      const files = [...list];
+    (list: PickedFile[]) => {
       const existing = new Set(getValues('files').map((f) => f.path));
-      for (const file of files) {
-        const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-        if (existing.has(path)) continue;
+      for (const { file, path } of list) {
+        if (isJunk(path) || existing.has(path)) continue;
         const id = `${path}:${file.size}:${Math.random().toString(36).slice(2, 8)}`;
         existing.add(path);
         setValue('files', [...getValues('files'), { id, path, size: file.size, contentType: guessType(file.name, file.type), digest: null, status: 'hashing', progress: 0 }], { shouldDirty: true });
         const contentType = guessType(file.name, file.type);
-        void sha256File(file)
+        if (isExecutableCandidate(path)) {
+          void sniffFile(file).then((binary) => binary && patch(id, { binary }), () => undefined);
+        }
+        void limit(() => sha256File(file)
           .then(async (digest) => {
             patch(id, { digest, status: 'uploading', progress: 0 });
             await api.uploadBlob(file, {
@@ -62,21 +110,25 @@ export function StepFiles() {
             });
             patch(id, { status: 'done', progress: 1 });
             void trigger('files');
-          })
+          }))
           .catch((e: unknown) => {
             patch(id, { status: 'error' });
             setUploadError(e instanceof Error ? e.message : 'Upload failed');
           });
       }
     },
-    [getValues, setValue, patch, trigger],
+    [getValues, setValue, patch, trigger, limit],
   );
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    // Folders (plug-in bundles) are walked recursively; plain files keep their name as path.
+    void collectDropped(e.dataTransfer).then(addFiles, (err: unknown) => setUploadError(err instanceof Error ? err.message : 'Could not read the dropped folder'));
   };
+
+  const fromInput = (list: FileList | null): PickedFile[] =>
+    [...(list ?? [])].map((file) => ({ file, path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name }));
 
   const total = fields.reduce((n, f) => n + f.size, 0);
   const error = formState.errors.files?.message ?? formState.errors.files?.root?.message;
@@ -93,11 +145,16 @@ export function StepFiles() {
         className={cn('flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors', dragOver ? 'border-primary bg-primary/10' : 'border-border')}
       >
         <UploadCloud className="h-10 w-10 text-fg-subtle" aria-hidden />
-        <p className="mt-3 font-medium">Drag & drop audio, presets or module binaries</p>
-        <p className="mt-1 text-caption text-fg-muted">WAV, FLAC, AIFF, MIDI, JSON presets, CLAP/VST3 bundles, ONNX models</p>
-        <Button variant="secondary" className="mt-4" onClick={() => inputRef.current?.click()}>
-          Browse files
-        </Button>
+        <p className="mt-3 font-medium">Drag & drop audio, presets or plug-in bundles</p>
+        <p className="mt-1 text-caption text-fg-muted">WAV, FLAC, AIFF, MIDI, JSON presets, ONNX models, VST3 / CLAP plug-ins — drop the whole <code className="font-mono">.vst3</code> / <code className="font-mono">.clap</code> folder</p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+            Browse files
+          </Button>
+          <Button variant="secondary" leftIcon={<FolderUp className="h-4 w-4" />} onClick={() => folderRef.current?.click()}>
+            Add folder
+          </Button>
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -107,7 +164,19 @@ export function StepFiles() {
           aria-label="Choose files to upload"
           data-testid="file-input"
           onChange={(e) => {
-            if (e.target.files) addFiles(e.target.files);
+            addFiles(fromInput(e.target.files));
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={folderRef}
+          type="file"
+          multiple
+          className="sr-only"
+          aria-label="Choose a folder to upload"
+          data-testid="folder-input"
+          onChange={(e) => {
+            addFiles(fromInput(e.target.files));
             e.target.value = '';
           }}
         />
@@ -115,6 +184,8 @@ export function StepFiles() {
 
       {error && <p className="text-caption text-danger" role="alert">{error}</p>}
       {uploadError && <p className="text-caption text-danger" role="alert">Upload failed: {uploadError}</p>}
+
+      <PluginBuildsEditor />
 
       {fields.length > 0 && (
         <div className="rounded-lg border border-border">

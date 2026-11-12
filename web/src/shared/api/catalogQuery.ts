@@ -1,6 +1,7 @@
 import type { FacetBucket, KeyMode, KeyTonic, Package, Page, SearchFacets, SearchParams } from '@/shared/types/domain';
 import { formatKey, humanize, keyToSlug } from '@/shared/lib/format';
 import { expandWithChildren, resolveAlias, termLabel } from '@/shared/lib/taxonomy';
+import { buildsMatch, PLUGIN_FORMAT_LABEL, PLUGIN_OS_LABEL } from '@/shared/lib/plugins';
 
 /**
  * Client-side search over a list of packages: text scoring, taxonomy-aware filters,
@@ -26,7 +27,8 @@ export function matchesText(p: Package, q: string): number {
   return score;
 }
 
-const facetValues: Record<FacetKey, (p: Package) => string[]> = {
+/** Plug-in facets only count builds that match the other plug-in filter (a VST3 build *for macOS*). */
+const facetValues: Record<FacetKey, (p: Package, params: SearchParams) => string[]> = {
   kind: (p) => [p.kind],
   genre: (p) => [p.taxonomy.genres.primary, ...p.taxonomy.genres.secondary].filter(Boolean),
   instrument: (p) => p.taxonomy.instruments,
@@ -34,12 +36,14 @@ const facetValues: Record<FacetKey, (p: Package) => string[]> = {
   license: (p) => (p.license.content ? [p.license.content] : []),
   moduleClass: (p) => (p.module ? [p.module.moduleClass] : []),
   key: (p) => (p.musical?.key ? [keyToSlug(p.musical.key)] : []),
+  pluginFormat: (p, params) => p.plugins.filter((b) => buildsMatch([b], undefined, params.pluginOs)).map((b) => b.format),
+  pluginOs: (p, params) => p.plugins.filter((b) => buildsMatch([b], params.pluginFormat)).map((b) => b.os),
 };
 
 export function passes(p: Package, params: SearchParams, skip?: FacetKey | 'bpm'): boolean {
   const check = (k: FacetKey, selected: string[] | undefined, expand?: (s: string) => string[]) => {
     if (k === skip || !selected?.length) return true;
-    const values = facetValues[k](p);
+    const values = facetValues[k](p, params);
     return selected.some((s) => (expand ? expand(s) : [s]).some((v) => values.includes(v)));
   };
   if (!check('kind', params.kind)) return false;
@@ -49,6 +53,7 @@ export function passes(p: Package, params: SearchParams, skip?: FacetKey | 'bpm'
   if (!check('license', params.license)) return false;
   if (!check('moduleClass', params.moduleClass)) return false;
   if (!check('key', params.key)) return false;
+  if (!buildsMatch(p.plugins, skip === 'pluginFormat' ? undefined : params.pluginFormat, skip === 'pluginOs' ? undefined : params.pluginOs)) return false;
   const bpm = p.musical?.bpm?.value;
   if (skip === 'bpm') return params.q ? matchesText(p, params.q) > 0 : true;
   if (params.bpmMin !== undefined && (bpm === undefined || bpm < params.bpmMin)) return false;
@@ -69,6 +74,10 @@ function facetLabel(k: FacetKey, v: string): string {
       const [tonic, mode] = v.split('-') as [KeyTonic, KeyMode];
       return formatKey({ tonic, mode });
     }
+    case 'pluginFormat':
+      return PLUGIN_FORMAT_LABEL[v as keyof typeof PLUGIN_FORMAT_LABEL] ?? v;
+    case 'pluginOs':
+      return PLUGIN_OS_LABEL[v as keyof typeof PLUGIN_OS_LABEL] ?? v;
     default:
       return humanize(v);
   }
@@ -80,7 +89,7 @@ export function buildFacets(packages: Package[], params: SearchParams): SearchFa
     const counts = new Map<string, number>();
     for (const p of packages) {
       if (!passes(p, params, k)) continue;
-      for (const v of new Set(facetValues[k](p))) counts.set(v, (counts.get(v) ?? 0) + 1);
+      for (const v of new Set(facetValues[k](p, params))) counts.set(v, (counts.get(v) ?? 0) + 1);
     }
     out[k] = [...counts.entries()]
       .map<FacetBucket>(([value, count]) => ({ value, count, label: facetLabel(k, value) }))

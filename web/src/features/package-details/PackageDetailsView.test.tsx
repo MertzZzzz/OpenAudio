@@ -1,7 +1,8 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderAt } from '@/test/render';
 import { PackageDetailsView } from './PackageDetailsView';
+import { currentOs } from './PluginDownloads';
 import { createMockAuthApi } from '@/features/auth/mockAuthApi';
 
 describe('PackageDetailsView', () => {
@@ -42,5 +43,23 @@ describe('PackageDetailsView', () => {
     renderAt('/p', '/p', <PackageDetailsView publisher="lattice" slug="plate-verb" />);
     expect(await screen.findByText('Module definition')).toBeInTheDocument();
     expect(screen.getByText('Audio → Audio')).toBeInTheDocument();
+  });
+
+  it('lists VST3/CLAP builds of module packages', async () => {
+    renderAt('/p', '/p', <PackageDetailsView publisher="lattice" slug="plate-verb" />);
+    const section = await screen.findByRole('region', { name: 'Plug-in downloads' });
+    const rows = within(section).getAllByRole('row');
+    expect(rows).toHaveLength(6); // header + 5 builds
+    expect(within(section).getAllByText('demo data')).toHaveLength(5);
+  });
+});
+
+describe('currentOs', () => {
+  it('recognises desktop platforms', () => {
+    expect(currentOs('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('windows');
+    expect(currentOs('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)')).toBe('macos');
+    expect(currentOs('Mozilla/5.0 (X11; Linux x86_64)')).toBe('linux');
+    expect(currentOs('Mozilla/5.0 (Linux; Android 14)')).toBeNull();
+    expect(currentOs('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')).toBeNull();
   });
 });

@@ -168,6 +168,7 @@ type Params struct {
 	Q                                                       string
 	Kinds, Genres, Instruments, Moods, UseCases, Categories []string
 	ModuleClasses, Keys, Licenses                           []string
+	PluginFormats, PluginOS                                 []string
 	Publisher                                               string
 	BPMMin, BPMMax                                          *int
 	EnergyMin, EnergyMax                                    *float64
@@ -210,6 +211,16 @@ func (s *Service) normalize(ctx context.Context, p Params) (domain.SearchQuery, 
 	for _, c := range p.ModuleClasses {
 		if !classes[c] {
 			bad("moduleClass", fmt.Sprintf("unknown module class %q", c))
+		}
+	}
+	for _, f := range p.PluginFormats {
+		if f != "vst3" && f != "clap" {
+			bad("pluginFormat", fmt.Sprintf("plug-in format must be vst3 or clap, got %q", f))
+		}
+	}
+	for _, o := range p.PluginOS {
+		if o != "windows" && o != "macos" && o != "linux" {
+			bad("pluginOs", fmt.Sprintf("OS must be windows, macos or linux, got %q", o))
 		}
 	}
 	for _, k := range p.Keys {
@@ -260,26 +271,28 @@ func (s *Service) normalize(ctx context.Context, p Params) (domain.SearchQuery, 
 	}
 	page, limit := clampPage(p.Page, p.Limit)
 	return domain.SearchQuery{
-		Text:        strings.TrimSpace(p.Q),
-		AliasSlugs:  v.textSlugs(p.Q),
-		Kinds:       p.Kinds,
-		Publisher:   strings.ToLower(strings.TrimSpace(p.Publisher)),
-		Genres:      v.expand("genre", p.Genres),
-		Instruments: v.expand("instrument", p.Instruments),
-		Moods:       v.expand("mood", p.Moods),
-		UseCases:    v.expand("use-case", p.UseCases),
-		Categories:  v.expand("module-category", p.Categories),
-		ModuleClass: p.ModuleClasses,
-		Keys:        p.Keys,
-		Licenses:    p.Licenses,
-		Commercial:  p.Commercial,
-		BPMMin:      p.BPMMin,
-		BPMMax:      p.BPMMax,
-		EnergyMin:   p.EnergyMin,
-		EnergyMax:   p.EnergyMax,
-		Sort:        sort,
-		Limit:       limit,
-		Offset:      (page - 1) * limit,
+		Text:          strings.TrimSpace(p.Q),
+		AliasSlugs:    v.textSlugs(p.Q),
+		Kinds:         p.Kinds,
+		Publisher:     strings.ToLower(strings.TrimSpace(p.Publisher)),
+		Genres:        v.expand("genre", p.Genres),
+		Instruments:   v.expand("instrument", p.Instruments),
+		Moods:         v.expand("mood", p.Moods),
+		UseCases:      v.expand("use-case", p.UseCases),
+		Categories:    v.expand("module-category", p.Categories),
+		ModuleClass:   p.ModuleClasses,
+		Keys:          p.Keys,
+		Licenses:      p.Licenses,
+		PluginFormats: p.PluginFormats,
+		PluginOS:      p.PluginOS,
+		Commercial:    p.Commercial,
+		BPMMin:        p.BPMMin,
+		BPMMax:        p.BPMMax,
+		EnergyMin:     p.EnergyMin,
+		EnergyMax:     p.EnergyMax,
+		Sort:          sort,
+		Limit:         limit,
+		Offset:        (page - 1) * limit,
 	}, nil
 }
 
@@ -330,6 +343,8 @@ var facetDomains = map[string]string{
 	domain.FacetUseCase: "use-case", domain.FacetCategory: "module-category",
 }
 
+var pluginLabels = map[string]string{"vst3": "VST3", "clap": "CLAP", "windows": "Windows", "macos": "macOS", "linux": "Linux"}
+
 // Facets counts values per facet; every facet ignores its own selection.
 func (s *Service) Facets(ctx context.Context, p Params) (domain.Facets, error) {
 	q, err := s.normalize(ctx, p)
@@ -363,6 +378,8 @@ func (s *Service) Facets(ctx context.Context, p Params) (domain.Facets, error) {
 				}
 			case facet == domain.FacetLicense:
 				b.Label = b.Value
+			case facet == domain.FacetPluginFormat || facet == domain.FacetPluginOS:
+				b.Label = pluginLabels[b.Value]
 			default:
 				b.Label = humanize(b.Value)
 			}

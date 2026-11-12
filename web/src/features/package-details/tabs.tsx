@@ -12,16 +12,18 @@ import { useSamples } from '@/features/sample-browser/api';
 import { packageHref } from '@/features/catalog/PackageCard';
 import { useArtifacts, usePackageById } from './api';
 import { ModuleDiagram } from './ModuleDiagram';
+import { PluginDownloads } from './PluginDownloads';
 
-export function OverviewTab({ pkg }: { pkg: Package }) {
+export function OverviewTab({ pkg, version }: { pkg: Package; version: string }) {
   return (
     <div className="space-y-6">
       <p className="max-w-3xl leading-relaxed text-fg-muted">{pkg.description}</p>
+      <PluginDownloads pkg={pkg} version={version} />
       {pkg.module && (
         <section aria-labelledby="module-heading" className="space-y-3">
           <h3 id="module-heading" className="font-semibold">Module definition</h3>
           <ModuleDiagram module={pkg.module} />
-          <p className="text-caption text-fg-subtle">OpenAudio distributes and describes modules; hosting (CLAP / VST3 / AU) is a future phase.</p>
+          <p className="text-caption text-fg-subtle">OpenAudio distributes and describes modules (including their VST3 / CLAP builds); running them is up to your DAW.</p>
         </section>
       )}
       {pkg.tags.length > 0 && (

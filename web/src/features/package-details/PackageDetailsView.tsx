@@ -162,7 +162,7 @@ export function PackageDetailsView({ publisher, slug }: { publisher: string; slu
         <div className="min-w-0 space-y-6">
           <Tabs label="Package sections" items={tabs} value={tab} onChange={setTab} />
           <TabPanel value={tab}>
-            {tab === 'overview' && <OverviewTab pkg={pkg} />}
+            {tab === 'overview' && <OverviewTab pkg={pkg} version={version} />}
             {tab === 'versions' && <VersionsTab releases={versionsQ.data ?? []} current={version} onSelect={(v) => setSp(v === pkg.latestVersion ? {} : { v })} />}
             {tab === 'files' && <FilesTab pkg={pkg} version={version} />}
             {tab === 'samples' && <SamplesTab pkg={pkg} />}

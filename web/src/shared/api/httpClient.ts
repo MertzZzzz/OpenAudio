@@ -11,6 +11,7 @@ import type {
   Package,
   PackageKind,
   Page,
+  PluginBuild,
   PublisherMember,
   PublisherMembership,
   Release,
@@ -40,6 +41,7 @@ interface PackageDTO {
   technical: Package['technical'] | null;
   module: (Omit<NonNullable<Package['module']>, 'ports'> & { ports?: NonNullable<Package['module']>['ports'] }) | null;
   dependencies: { id: string; range: string }[];
+  plugins?: PluginBuild[];
   tags: string[];
   downloads?: number;
 }
@@ -115,6 +117,7 @@ export function toPackage(d: PackageDTO): Package {
     musical: d.musical ?? undefined,
     technical: { formats: [], ...(d.technical ?? {}) },
     module: d.module ? { ...d.module, ports: d.module.ports ?? [], categories: d.module.categories ?? [] } : undefined,
+    plugins: d.plugins ?? [],
     tags: d.tags,
     downloads: d.downloads ?? 0,
     rating: 0,
@@ -169,6 +172,7 @@ export function searchQuery(p: SearchParams, paging: boolean): string {
   const lists: [string, string[] | undefined][] = [
     ['kind', p.kind], ['genre', p.genre], ['instrument', p.instrument], ['mood', p.mood],
     ['license', p.license], ['moduleClass', p.moduleClass], ['key', p.key],
+    ['pluginFormat', p.pluginFormat], ['pluginOs', p.pluginOs],
   ];
   for (const [k, v] of lists) if (v?.length) qs.set(k, v.join(','));
   if (p.bpmMin !== undefined) qs.set('bpmMin', String(p.bpmMin));
@@ -261,6 +265,8 @@ export function createHttpClient(): ApiClient {
       return { items: res.items.map(toPackage), total: res.total, page: res.page, limit: res.limit };
     },
 
+    bundleDownloadUrl: (publisher, slug, version, bundle) =>
+      `${API_BASE}${pkgPath(publisher, slug)}/releases/${encodeURIComponent(version)}/bundles/${bundle.split('/').map(encodeURIComponent).join('/')}`,
     searchFacets: (params) => request<SearchFacets>(`/search/facets?${searchQuery(params, false)}`),
 
     getPackage,

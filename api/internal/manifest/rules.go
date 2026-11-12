@@ -14,6 +14,7 @@ func Rules(m *Manifest) []domain.Issue {
 	var out []domain.Issue
 	out = append(out, moduleRules(m.Module)...)
 	out = append(out, artifactRules(m)...)
+	out = append(out, pluginRules(m)...)
 	out = append(out, recommendations(m)...)
 	for i, d := range m.Deps {
 		p := fmt.Sprintf("dependencies.%d", i)

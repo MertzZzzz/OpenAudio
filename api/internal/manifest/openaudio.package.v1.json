@@ -112,6 +112,24 @@
         "categories": { "type": "array", "items": { "$ref": "#/$defs/slug" }, "uniqueItems": true }
       }
     },
+    "plugins": {
+      "type": "array",
+      "description": "Plug-in builds shipped in this release (VST3 / CLAP). Each entry points at a bundle folder or single file listed in artifacts. OpenAudio distributes them; it does not run them.",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["format", "bundle", "os", "arch"],
+        "properties": {
+          "format": { "enum": ["vst3", "clap"] },
+          "bundle": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^/\\\\][^\\\\]*\\.(vst3|clap|VST3|CLAP)$", "description": "Path of the .vst3/.clap bundle folder or file, relative to the release root" },
+          "os": { "enum": ["windows", "macos", "linux"] },
+          "arch": { "type": "array", "items": { "enum": ["x86_64", "arm64", "arm64ec", "i386"] }, "minItems": 1, "uniqueItems": true },
+          "pluginIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 128 }, "uniqueItems": true, "maxItems": 64, "description": "CLAP plug-in ids (reverse-DNS) or VST3 class ids (32 hex digits)" },
+          "minOsVersion": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+){0,2}$" }
+        }
+      }
+    },
     "dependencies": {
       "type": "array",
       "items": {

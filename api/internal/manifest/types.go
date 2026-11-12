@@ -15,6 +15,16 @@ type Manifest struct {
 	Deps        []Dep      `json:"dependencies"`
 	Artifacts   []Artifact `json:"artifacts"`
 	Samples     []Sample   `json:"samples"`
+	Plugins     []Plugin   `json:"plugins"`
+}
+
+// Plugin is one VST3/CLAP build: a bundle (folder or single file) for one OS.
+type Plugin struct {
+	Format    string   `json:"format"`
+	Bundle    string   `json:"bundle"`
+	OS        string   `json:"os"`
+	Arch      []string `json:"arch"`
+	PluginIDs []string `json:"pluginIds"`
 }
 
 type Taxonomy struct {

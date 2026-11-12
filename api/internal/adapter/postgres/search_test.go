@@ -316,3 +316,55 @@ func TestSearch(t *testing.T) {
 		}
 	})
 }
+
+func TestSearchPluginBuilds(t *testing.T) {
+	pool := setup(t)
+	users := postgres.NewUserRepo(pool)
+	search := postgres.NewSearchRepo(pool)
+	u := newUser("plugins@example.com")
+	require.NoError(t, users.Create(ctx, u))
+	s := &seeder{t: t, pubs: postgres.NewPublisherRepo(pool), pkgs: postgres.NewPackageRepo(pool), rels: postgres.NewReleaseRepo(pool), user: u.ID, ids: map[string]uuid.UUID{}, at: time.Now().UTC().Truncate(time.Second)}
+	s.publisher("dsp", "DSP Co")
+	bin := func(p string, c byte) map[string]any {
+		return map[string]any{"kind": "binary", "path": p, "digest": "sha256:" + strings.Repeat(string(c), 64), "size": 10}
+	}
+	effect := func(arts []any, plugins []any) map[string]any {
+		return map[string]any{
+			"license":   map[string]any{"content": "MIT", "commercialUse": true, "attributionRequired": false},
+			"taxonomy":  tax("electronic", nil, nil, nil),
+			"module":    map[string]any{"moduleClass": "audio-effect", "categories": []string{"saturation"}, "capabilities": map[string]any{"accepts": []string{"audio"}, "produces": []string{"audio"}, "placement": []string{"insert"}}},
+			"artifacts": arts, "plugins": plugins,
+		}
+	}
+	// tape: VST3 macOS + CLAP Linux. grit: VST3 Windows only. plain: no plug-in builds.
+	s.publish("dsp", "tape", "Tape", "effect", "1.0.0", effect(
+		[]any{bin("mac/Tape.vst3/Contents/MacOS/Tape", 'a'), bin("linux/tape.clap", 'b')},
+		[]any{map[string]any{"format": "vst3", "bundle": "mac/Tape.vst3", "os": "macos", "arch": []string{"arm64"}},
+			map[string]any{"format": "clap", "bundle": "linux/tape.clap", "os": "linux", "arch": []string{"x86_64"}}}))
+	s.publish("dsp", "grit", "Grit", "effect", "1.0.0", effect(
+		[]any{bin("Grit.vst3/Contents/x86_64-win/Grit.vst3", 'c')},
+		[]any{map[string]any{"format": "vst3", "bundle": "Grit.vst3", "os": "windows", "arch": []string{"x86_64"}}}))
+	s.publish("dsp", "plain", "Plain", "effect", "1.0.0", effect([]any{bin("plain.bin", 'd')}, nil))
+
+	q := func(formats, oses []string) []string {
+		hits, _, err := search.Search(ctx, domain.SearchQuery{PluginFormats: formats, PluginOS: oses, Limit: 20, Sort: domain.SearchName})
+		require.NoError(t, err)
+		return names(hits)
+	}
+	assert.Equal(t, []string{"grit", "tape"}, q([]string{"vst3"}, nil))
+	assert.Equal(t, []string{"tape"}, q([]string{"clap"}, nil))
+	assert.Equal(t, []string{"tape"}, q(nil, []string{"linux"}))
+	assert.Equal(t, []string{"grit"}, q([]string{"vst3"}, []string{"windows"}))
+	assert.Empty(t, q([]string{"clap"}, []string{"macos"}), "tape has CLAP and has macOS, but no CLAP build for macOS")
+
+	hits, _, err := search.Search(ctx, domain.SearchQuery{Text: "clap", Limit: 20, Sort: domain.SearchRelevance})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tape"}, names(hits), "format names are searchable")
+
+	fs, err := search.Facets(ctx, domain.SearchQuery{PluginOS: []string{"macos"}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, bucket(fs, domain.FacetPluginFormat, "vst3"), "only builds for the selected OS count")
+	assert.Equal(t, 0, bucket(fs, domain.FacetPluginFormat, "clap"))
+	assert.Equal(t, 1, bucket(fs, domain.FacetPluginOS, "windows"), "own filter is ignored")
+	assert.Equal(t, 1, bucket(fs, domain.FacetPluginOS, "macos"))
+}
