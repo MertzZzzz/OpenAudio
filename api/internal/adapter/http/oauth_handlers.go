@@ -55,21 +55,28 @@ func (a *API) verify(value string) ([]byte, bool) {
 	return payload, hmac.Equal(sig, mac.Sum(nil))
 }
 
-// safeReturnTo only allows same-site relative paths (prevents open redirects).
-func safeReturnTo(p string) string {
+// safeReturnTo only allows same-site relative paths (prevents open redirects); anything else
+// becomes fallback.
+func safeReturnTo(p, fallback string) string {
 	if p == "" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") || strings.ContainsAny(p, "\r\n") {
-		return "/"
+		return fallback
 	}
 	return p
 }
 
+func (a *API) returnTo(p string) string { return safeReturnTo(p, a.opts.AuthRedirectPath) }
+
 func (a *API) finishURL(returnTo, errCode string) string {
 	q := url.Values{}
-	q.Set("returnTo", safeReturnTo(returnTo))
+	q.Set("returnTo", a.returnTo(returnTo))
 	if errCode != "" {
 		q.Set("error", errCode)
 	}
-	return a.opts.WebURL + "/auth/callback?" + q.Encode()
+	sep := "?"
+	if strings.Contains(a.opts.AuthCallbackURL, "?") {
+		sep = "&"
+	}
+	return a.opts.AuthCallbackURL + sep + q.Encode()
 }
 
 func (a *API) listProviders(w http.ResponseWriter, _ *http.Request) {
@@ -81,7 +88,7 @@ func (a *API) listProviders(w http.ResponseWriter, _ *http.Request) {
 	for _, p := range a.order {
 		out = append(out, providerDTO{ID: string(p), StartURL: APIPrefix + "/auth/oauth/" + string(p) + "/start"})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"email": true, "oauth": out})
+	writeJSON(w, http.StatusOK, map[string]any{"email": true, "oauth": out, "redirectPath": a.opts.AuthRedirectPath})
 }
 
 func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +107,7 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 		Provider: string(name),
 		State:    base64.RawURLEncoding.EncodeToString(stateBytes),
 		Verifier: oauth2.GenerateVerifier(),
-		ReturnTo: safeReturnTo(r.URL.Query().Get("returnTo")),
+		ReturnTo: a.returnTo(r.URL.Query().Get("returnTo")),
 		Expires:  a.now().Add(oauthStateTTL).Unix(),
 	}
 	payload, _ := json.Marshal(st)
@@ -123,13 +130,13 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 
 	p, ok := a.providers[name]
 	if !ok {
-		fail("/", "provider_not_enabled")
+		fail("", "provider_not_enabled")
 		return
 	}
 	st, err := a.readState(r, name)
 	if err != nil {
 		a.log.WarnContext(r.Context(), "oauth state rejected", "provider", name, "err", err)
-		fail("/", "oauth_state_mismatch")
+		fail("", "oauth_state_mismatch")
 		return
 	}
 	q := r.URL.Query()

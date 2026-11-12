@@ -37,7 +37,16 @@ export function applyServerIssues<T extends FieldValues>(err: unknown, setError:
 }
 
 /** Only same-site relative paths are allowed as post-login destinations. */
-export function safeReturnTo(raw: string | null): string {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return '/';
-  return raw;
+function isSitePath(raw: string | null | undefined): raw is string {
+  return !!raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/\\') && !/[\r\n]/.test(raw);
+}
+
+/** Where users land after signing in when no returnTo was given (VITE_AUTH_REDIRECT_PATH, default "/"). */
+export const authRedirectPath: string = isSitePath(import.meta.env.VITE_AUTH_REDIRECT_PATH)
+  ? import.meta.env.VITE_AUTH_REDIRECT_PATH
+  : '/';
+
+/** Only same-site paths are honoured (prevents open redirects); anything else → the default page. */
+export function safeReturnTo(raw: string | null, fallback: string = authRedirectPath): string {
+  return isSitePath(raw) ? raw : fallback;
 }

@@ -253,6 +253,10 @@ paths:
                       properties:
                         id: { $ref: '#/components/schemas/AuthProvider' }
                         startUrl: { type: string, examples: [/api/v1/auth/oauth/google/start] }
+                  redirectPath:
+                    type: string
+                    description: Default page after sign-in when no returnTo is given (AUTH_REDIRECT_PATH).
+                    examples: [/]
   /auth/oauth/{provider}/start:
     parameters:
       - $ref: '#/components/parameters/AuthProvider'

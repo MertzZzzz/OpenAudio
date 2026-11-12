@@ -66,7 +66,7 @@ type rig struct {
 
 const webURL = "http://localhost:5173"
 
-func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
+func newRig(t *testing.T, limiter *httpapi.RateLimiter, tweak ...func(*httpapi.Options)) *rig {
 	t.Helper()
 	store := memory.NewStore()
 	rec := &mailer.Recorder{}
@@ -93,7 +93,7 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 	libSvc := library.NewService(library.Deps{Libraries: cat.Libraries(), Lockfiles: cat.Lockfiles(), Packages: cat.Packages(), Releases: cat.Releases(), Logger: log})
 	fs := &fakeSearch{}
 	searchSvc := search.NewService(search.Deps{Repo: fs, Packages: cat.Packages(), Logger: log})
-	h := httpapi.NewHandler(httpapi.Options{
+	o := httpapi.Options{
 		Auth: svc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Library: libSvc, Tokens: jwtIssuer, Providers: []oauth.Provider{google}, Logger: log,
 		WebURL: webURL, CORSOrigins: []string{webURL}, StateKey: []byte("state-key"), Limiter: limiter,
 		Checks: []httpapi.HealthCheck{{Name: "database", Check: func(context.Context) error {
@@ -102,7 +102,11 @@ func newRig(t *testing.T, limiter *httpapi.RateLimiter) *rig {
 			}
 			return errors.New("connection refused")
 		}}},
-	})
+	}
+	for _, f := range tweak {
+		f(&o)
+	}
+	h := httpapi.NewHandler(o)
 	return &rig{h: h, mail: rec, google: google, checkOK: &ok, blobs: blobs, search: fs}
 }
 
@@ -321,7 +325,7 @@ func TestOAuthFlow(t *testing.T) {
 	r := newRig(t, nil)
 
 	w := r.do(t, req{method: "GET", path: "/api/v1/auth/providers"})
-	assert.Equal(t, map[string]any{"email": true, "oauth": []any{map[string]any{"id": "google", "startUrl": "/api/v1/auth/oauth/google/start"}}}, decode(t, w))
+	assert.Equal(t, map[string]any{"email": true, "oauth": []any{map[string]any{"id": "google", "startUrl": "/api/v1/auth/oauth/google/start"}}, "redirectPath": "/"}, decode(t, w))
 
 	w = r.do(t, req{method: "GET", path: "/api/v1/auth/oauth/discord/start"})
 	assert.Equal(t, http.StatusNotFound, w.Code, "disabled provider")
@@ -357,6 +361,27 @@ func TestOAuthFlow(t *testing.T) {
 	assert.Equal(t, true, me["emailVerified"])
 	assert.Equal(t, false, me["hasPassword"])
 	assert.Equal(t, "google", me["identities"].([]any)[0].(map[string]any)["provider"])
+}
+
+func TestOAuthCustomCallbackAndRedirect(t *testing.T) {
+	r := newRig(t, nil, func(o *httpapi.Options) {
+		o.AuthCallbackURL = "https://app.example.com/signin/done?src=oauth"
+		o.AuthRedirectPath = "/library"
+	})
+	w := r.do(t, req{method: "GET", path: "/api/v1/auth/providers"})
+	assert.Equal(t, "/library", decode(t, w)["redirectPath"])
+
+	// No returnTo → the configured default page.
+	w = r.do(t, req{method: "GET", path: "/api/v1/auth/oauth/google/start"})
+	loc, _ := url.Parse(w.Header().Get("Location"))
+	w = r.do(t, req{method: "GET", path: "/api/v1/auth/oauth/google/callback?code=abc&state=" + url.QueryEscape(loc.Query().Get("state")),
+		cookies: []*http.Cookie{cookie(w, "oa_oauth")}})
+	require.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://app.example.com/signin/done?src=oauth&returnTo=%2Flibrary", w.Header().Get("Location"))
+
+	// Unsafe returnTo also falls back to the configured page; failures too.
+	w = r.do(t, req{method: "GET", path: "/api/v1/auth/oauth/google/callback?code=x&state=forged"})
+	assert.Equal(t, "https://app.example.com/signin/done?src=oauth&error=oauth_state_mismatch&returnTo=%2Flibrary", w.Header().Get("Location"))
 }
 
 func TestOAuthCallbackRejections(t *testing.T) {

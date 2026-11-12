@@ -22,6 +22,8 @@ export interface AuthUser {
 export interface AuthProviders {
   email: boolean;
   oauth: { id: OAuthProviderId; startUrl: string }[];
+  /** Server's default post-sign-in page (AUTH_REDIRECT_PATH). */
+  redirectPath?: string;
 }
 
 export interface RegisterInput {

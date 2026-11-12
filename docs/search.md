@@ -52,8 +52,8 @@ counted) and redirects to a short-lived presigned URL. Sample hits and the web a
 ## Demo data
 
 ```bash
-ADMIN_EMAILS=demo@openaudio.dev docker compose up -d
-make seed        # = python3 scripts/seed_demo.py --api http://localhost:5173/api/v1
+docker compose up -d   # ADMIN_EMAIL / ADMIN_PASSWORD set in .env
+make seed              # = python3 scripts/seed_demo.py --api http://localhost:5173/api/v1 (as that admin)
 ```
 
 The seeder publishes 8 packages from 4 publishers through the public API (generated WAV files, resumable uploads,

@@ -133,7 +133,14 @@ describe('safeReturnTo', () => {
     ['https://evil.example', '/'],
     ['//evil.example', '/'],
     ['/\\evil.example', '/'],
+    ['/a\nb', '/'],
   ])('%s → %s', (input, out) => expect(safeReturnTo(input)).toBe(out));
+
+  it('falls back to the configured default page', () => {
+    expect(safeReturnTo(null, '/library')).toBe('/library');
+    expect(safeReturnTo('//evil.example', '/library')).toBe('/library');
+    expect(safeReturnTo('/samples', '/library')).toBe('/samples');
+  });
 });
 
 describe('sign out', () => {

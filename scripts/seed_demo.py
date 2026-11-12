@@ -4,8 +4,11 @@
 Every sample is a small generated WAV (sine tones), uploaded with the resumable upload API, so the
 whole publishing pipeline (SHA-256 verification, manifest validation, publish, search indexing) runs.
 
-    ADMIN_EMAILS=demo@openaudio.dev docker compose up -d     # the seeding account must be an admin
+    docker compose up -d
     python3 scripts/seed_demo.py --api http://localhost:5173/api/v1
+
+The seeding account must be an admin. By default it is the default admin from .env
+(ADMIN_EMAIL / ADMIN_PASSWORD, also read from the environment); --email/--password override it.
 
 Re-running is safe: existing publishers, packages and versions are skipped.
 """
@@ -14,6 +17,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import struct
 import sys
 import urllib.error
@@ -160,16 +164,33 @@ PACKAGES = [
 ]
 
 
+def dotenv(path):
+    """Minimal KEY=VALUE reader for the repository's .env (no interpolation)."""
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    out[k.strip()] = v.strip().strip('"').strip("'")
+    except FileNotFoundError:
+        pass
+    return out
+
+
 def main():
+    env = {**dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")), **os.environ}
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--api", default="http://localhost:5173/api/v1")
-    ap.add_argument("--email", default="demo@openaudio.dev")
-    ap.add_argument("--password", default="openaudio-demo-password")
+    ap.add_argument("--email", default=env.get("ADMIN_EMAIL") or "demo@openaudio.dev")
+    ap.add_argument("--password", default=env.get("ADMIN_PASSWORD") or "openaudio-demo-password")
     args = ap.parse_args()
     api = API(args.api)
     user = api.sign_in(args.email, args.password, "OpenAudio Demo")
     if user["role"] != "admin":
-        sys.exit(f"{args.email} is not an admin. Start the API with ADMIN_EMAILS={args.email} (before the account is created).")
+        sys.exit(f"{args.email} is not an admin. Set ADMIN_EMAIL/ADMIN_PASSWORD in .env and restart the API, "
+                 f"or pass the admin's --email/--password.")
 
     for slug, name in PUBLISHERS:
         st, res = api.call("POST", "/publishers", {"slug": slug, "name": name})

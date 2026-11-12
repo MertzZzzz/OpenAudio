@@ -97,6 +97,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if a := cfg.DefaultAdmin; a.Enabled() {
+		created, err := authSvc.EnsureAdmin(ctx, auth.AdminAccount{Email: a.Email, Password: a.Password, DisplayName: a.DisplayName})
+		if err != nil {
+			return err
+		}
+		log.Info("default admin ready", "email", a.Email, "created", created)
+	}
 
 	// Publishing & uploads
 	validator, err := manifest.NewValidator()
@@ -134,7 +141,7 @@ func run() error {
 
 	handler := httpapi.NewHandler(httpapi.Options{
 		Auth: authSvc, Publishing: pubSvc, Uploads: upSvc, Search: searchSvc, Library: libSvc, Tokens: jwtIssuer, Providers: providers, Logger: log,
-		WebURL: cfg.WebURL, CORSOrigins: cfg.CORSOrigins, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy,
+		WebURL: cfg.WebURL, AuthCallbackURL: cfg.AuthCallbackURL, AuthRedirectPath: cfg.AuthRedirectPath, CORSOrigins: cfg.CORSOrigins, CookieSecure: cfg.CookieSecure, TrustProxy: cfg.TrustProxy,
 		StateKey: stateMAC.Sum(nil), Limiter: httpapi.NewRateLimiter(10, 5),
 		Checks: []httpapi.HealthCheck{
 			{Name: "database", Check: pool.Ping},

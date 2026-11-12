@@ -18,6 +18,17 @@ type OAuthClient struct {
 	ClientSecret string
 }
 
+type DefaultAdmin struct {
+	Email       string
+	Password    string
+	DisplayName string
+}
+
+func (a DefaultAdmin) Enabled() bool { return a.Email != "" }
+
+// ExampleAdminPassword is the placeholder shipped in .env.example; refused in production.
+const ExampleAdminPassword = "change-me-admin-password"
+
 func (c OAuthClient) Enabled() bool { return c.ClientID != "" && c.ClientSecret != "" }
 
 type SMTP struct {
@@ -33,6 +44,9 @@ type Config struct {
 	LogLevel string
 	HTTPAddr string
 
+	// BaseDomain (e.g. "openaudio.example.com") is the single knob for a deployment's address:
+	// WEB_URL, PUBLIC_URL, CORS and the default mail sender derive from it unless set explicitly.
+	BaseDomain string
 	// PublicURL is where browsers reach the API (used for OAuth redirect URIs).
 	// In development the Vite dev server proxies /api, so it equals WebURL and cookies stay first-party.
 	PublicURL   string
@@ -56,6 +70,13 @@ type Config struct {
 	RefreshTTL   time.Duration
 	CookieSecure bool
 	AdminEmails  []string
+	// DefaultAdmin is created (or kept in sync) on start-up when ADMIN_EMAIL and ADMIN_PASSWORD are set.
+	DefaultAdmin DefaultAdmin
+
+	// AuthRedirectPath is where users land after signing in when no returnTo was given.
+	AuthRedirectPath string
+	// AuthCallbackURL is the SPA page OAuth sign-in finishes at (receives ?returnTo= and ?error=).
+	AuthCallbackURL string
 
 	UploadPartSize int64
 	MaxBlobSize    int64
@@ -115,11 +136,21 @@ func Load(getenv func(string) string) (Config, error) {
 		return out
 	}
 
+	baseDomain := strings.TrimRight(strings.TrimSpace(strings.ToLower(getenv("BASE_DOMAIN"))), "/")
+	defaultWebURL := "http://localhost:5173"
+	if baseDomain != "" {
+		if strings.Contains(baseDomain, "://") || strings.ContainsAny(baseDomain, "/?#@ ") {
+			errs = append(errs, fmt.Errorf("BASE_DOMAIN must be a host name with an optional port (e.g. openaudio.example.com), got %q", baseDomain))
+		}
+		defaultWebURL = str("BASE_SCHEME", defaultScheme(baseDomain)) + "://" + baseDomain
+	}
+
 	c := Config{
 		Env:         str("APP_ENV", "development"),
 		LogLevel:    str("LOG_LEVEL", "info"),
 		HTTPAddr:    str("HTTP_ADDR", ":8080"),
-		WebURL:      strings.TrimRight(str("WEB_URL", "http://localhost:5173"), "/"),
+		BaseDomain:  baseDomain,
+		WebURL:      strings.TrimRight(str("WEB_URL", defaultWebURL), "/"),
 		TrustProxy:  boolean("TRUST_PROXY", false),
 		DatabaseURL: str("DATABASE_URL", "postgres://openaudio:openaudio@localhost:5432/openaudio?sslmode=disable"),
 		AutoMigrate: boolean("AUTO_MIGRATE", true),
@@ -136,8 +167,28 @@ func Load(getenv func(string) string) (Config, error) {
 		Discord:     OAuthClient{ClientID: str("DISCORD_CLIENT_ID", ""), ClientSecret: str("DISCORD_CLIENT_SECRET", "")},
 		SMTP: SMTP{
 			Host: str("SMTP_HOST", ""), Username: str("SMTP_USERNAME", ""), Password: str("SMTP_PASSWORD", ""),
-			From: str("SMTP_FROM", "OpenAudio <no-reply@openaudio.local>"),
+			From: str("SMTP_FROM", "OpenAudio <no-reply@"+mailHost(baseDomain)+">"),
 		},
+		DefaultAdmin: DefaultAdmin{
+			Email:       strings.ToLower(str("ADMIN_EMAIL", "")),
+			Password:    getenv("ADMIN_PASSWORD"), // not trimmed: spaces are valid password characters
+			DisplayName: str("ADMIN_DISPLAY_NAME", "Admin"),
+		},
+		AuthRedirectPath: str("AUTH_REDIRECT_PATH", "/"),
+	}
+	c.AuthCallbackURL = str("AUTH_CALLBACK_URL", c.WebURL+"/auth/callback")
+	if a := c.DefaultAdmin; a.Email != "" || a.Password != "" {
+		switch {
+		case a.Email == "" || a.Password == "":
+			errs = append(errs, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD must be set together"))
+		case c.Env == "production" && a.Password == ExampleAdminPassword:
+			errs = append(errs, errors.New("ADMIN_PASSWORD still has the example value from .env.example"))
+		default:
+			c.AdminEmails = append(c.AdminEmails, a.Email)
+		}
+	}
+	if !isRelativePath(c.AuthRedirectPath) {
+		errs = append(errs, fmt.Errorf("AUTH_REDIRECT_PATH must be a path on the site starting with / (e.g. /library), got %q", c.AuthRedirectPath))
 	}
 	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", c.WebURL), "/")
 	c.DownloadTTL = duration("DOWNLOAD_URL_TTL", 10*time.Minute)
@@ -174,8 +225,8 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.Env != "development" && c.Env != "production" {
 		errs = append(errs, fmt.Errorf("APP_ENV must be development or production, got %q", c.Env))
 	}
-	for key, raw := range map[string]string{"WEB_URL": c.WebURL, "PUBLIC_URL": c.PublicURL} {
-		if u, err := url.Parse(raw); err != nil || u.Scheme == "" || u.Host == "" {
+	for key, raw := range map[string]string{"WEB_URL": c.WebURL, "PUBLIC_URL": c.PublicURL, "AUTH_CALLBACK_URL": c.AuthCallbackURL} {
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("%s must be an absolute URL, got %q", key, raw))
 		}
 	}
@@ -203,4 +254,31 @@ func Load(getenv func(string) string) (Config, error) {
 		c.Warnings = append(c.Warnings, "SMTP_HOST not set: emails are written to the log")
 	}
 	return c, errors.Join(errs...)
+}
+
+// defaultScheme picks http for local hosts and https for everything else.
+func defaultScheme(host string) string {
+	h := host
+	if i := strings.LastIndex(h, ":"); i > 0 && !strings.HasSuffix(h, "]") {
+		h = h[:i]
+	}
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasPrefix(h, "127.") || h == "[::1]" {
+		return "http"
+	}
+	return "https"
+}
+
+func mailHost(baseDomain string) string {
+	if baseDomain == "" {
+		return "openaudio.local"
+	}
+	if i := strings.LastIndex(baseDomain, ":"); i > 0 {
+		return baseDomain[:i]
+	}
+	return baseDomain
+}
+
+// isRelativePath accepts same-site paths only (no scheme, no protocol-relative //host).
+func isRelativePath(p string) bool {
+	return strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && !strings.HasPrefix(p, "/\\") && !strings.ContainsAny(p, "\r\n")
 }

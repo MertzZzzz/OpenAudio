@@ -11,11 +11,11 @@ instruments, effects, MIDI tools and (later) plugin modules.
 
 ```bash
 # Whole stack: PostgreSQL + MinIO + Go API + web
-cp .env.example .env   # optionally add Google/Discord credentials, see docs/auth.md
+cp .env.example .env   # set ADMIN_EMAIL/ADMIN_PASSWORD, optionally BASE_DOMAIN and Google/Discord, see docs/auth.md
 docker compose up      # http://localhost:5173 (API proxied at /api), MinIO console :9001
+                       # sign in as ADMIN_EMAIL / ADMIN_PASSWORD (admin@openaudio.local / change-me-admin-password)
 
-# Demo catalog (8 packages) — the seeding account must be an admin:
-#   ADMIN_EMAILS=demo@openaudio.dev in .env, then
+# Demo catalog (8 packages), published as the default admin from .env:
 make seed
 
 # Frontend only, no backend (everything mocked; demo@openaudio.dev / openaudio-demo)

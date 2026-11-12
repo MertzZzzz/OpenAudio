@@ -59,9 +59,14 @@ services:
     environment:
       APP_ENV: development
       HTTP_ADDR: ":8080"
-      WEB_URL: ${WEB_URL:-http://localhost:5173}
+      # Empty WEB_URL / PUBLIC_URL derive from BASE_DOMAIN (or fall back to http://localhost:5173).
       # Browsers reach the API through the Vite proxy on the web origin.
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5173}
+      BASE_DOMAIN: ${BASE_DOMAIN:-}
+      BASE_SCHEME: ${BASE_SCHEME:-}
+      WEB_URL: ${WEB_URL:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      AUTH_REDIRECT_PATH: ${AUTH_REDIRECT_PATH:-/}
+      AUTH_CALLBACK_URL: ${AUTH_CALLBACK_URL:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-openaudio}:${POSTGRES_PASSWORD:-openaudio}@postgres:5432/${POSTGRES_DB:-openaudio}?sslmode=disable
       S3_ENDPOINT: http://minio:9000
       # Presigned download URLs must point at an address the browser can reach.
@@ -71,6 +76,9 @@ services:
       S3_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:-Admin}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
@@ -79,7 +87,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-OpenAudio <no-reply@openaudio.local>}
+      SMTP_FROM: ${SMTP_FROM:-}
       UPLOAD_PART_SIZE: ${UPLOAD_PART_SIZE:-8388608}
       MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-2147483648}
       DOWNLOAD_URL_TTL: ${DOWNLOAD_URL_TTL:-10m}
@@ -104,6 +112,9 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       VITE_API_PROXY: http://api:8080
       VITE_API_MODE: http
+      VITE_AUTH_REDIRECT_PATH: ${AUTH_REDIRECT_PATH:-/}
+      # Lets the dev server answer on the deployment's host name.
+      BASE_DOMAIN: ${BASE_DOMAIN:-}
     depends_on:
       - api
 

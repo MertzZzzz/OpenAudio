@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -40,10 +41,14 @@ type Options struct {
 	Checks     []HealthCheck
 	Logger     *slog.Logger
 
-	WebURL       string // where the SPA lives; OAuth finishes at {WebURL}/auth/callback
-	CORSOrigins  []string
-	CookieSecure bool
-	TrustProxy   bool
+	WebURL string // where the SPA lives
+	// AuthCallbackURL is the SPA page OAuth finishes at (default {WebURL}/auth/callback).
+	AuthCallbackURL string
+	// AuthRedirectPath is where users land after sign-in when no returnTo was given (default "/").
+	AuthRedirectPath string
+	CORSOrigins      []string
+	CookieSecure     bool
+	TrustProxy       bool
 	// StateKey signs the short-lived OAuth state cookie.
 	StateKey []byte
 	// Limiter guards credential endpoints; nil disables rate limiting.
@@ -71,6 +76,12 @@ const APIPrefix = "/api/v1"
 
 // NewHandler builds the HTTP handler with every route under /api/v1.
 func NewHandler(o Options) http.Handler {
+	if o.AuthCallbackURL == "" {
+		o.AuthCallbackURL = strings.TrimRight(o.WebURL, "/") + "/auth/callback"
+	}
+	if o.AuthRedirectPath == "" || safeReturnTo(o.AuthRedirectPath, "") == "" {
+		o.AuthRedirectPath = "/"
+	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}

@@ -14,7 +14,7 @@ down: ## Stop the stack
 logs: ## Tail compose logs
 	docker compose logs -f
 
-seed: ## Publish demo packages through the API (needs ADMIN_EMAILS=demo@openaudio.dev)
+seed: ## Publish demo packages through the API (as the default admin from .env)
 	python3 scripts/seed_demo.py --api $${API:-http://localhost:5173/api/v1}
 
 web-install: ## Install frontend dependencies
