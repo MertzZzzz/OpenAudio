@@ -31,6 +31,9 @@ type Config struct {
 	Bucket         string
 	Region         string
 	UseSSL         bool
+	// VirtualHost switches to bucket.host addressing (AWS S3); the default is path style
+	// (host/bucket), which MinIO/Silo and most S3-compatible services expect.
+	VirtualHost bool
 }
 
 // Storage implements domain.BlobStore on an S3-compatible service.
@@ -64,12 +67,22 @@ func newClient(cfg Config, rawEndpoint string) (*minio.Client, error) {
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: secure,
 		// A fixed region keeps presigning offline (no bucket-location lookup).
-		Region: cfg.Region,
+		Region:       cfg.Region,
+		BucketLookup: bucketLookup(cfg),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("s3 client: %w", err)
 	}
+	// Use the configured host as-is (the SDK would otherwise rewrite AWS hosts to dualstack ones).
+	client.SetS3EnableDualstack(false)
 	return client, nil
+}
+
+func bucketLookup(cfg Config) minio.BucketLookupType {
+	if cfg.VirtualHost {
+		return minio.BucketLookupDNS
+	}
+	return minio.BucketLookupPath
 }
 
 // EnsureBucket creates the bucket when missing (local development convenience).

@@ -67,12 +67,19 @@ func run() error {
 	}
 
 	// Object storage: not required for auth, so a failure only degrades readiness.
-	storage, err := s3.New(s3.Config{Endpoint: cfg.S3Endpoint, PublicEndpoint: cfg.S3PublicEndpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Bucket: cfg.S3Bucket, Region: cfg.S3Region})
+	storage, err := s3.New(s3.Config{Endpoint: cfg.S3Endpoint, PublicEndpoint: cfg.S3PublicEndpoint, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey,
+		Bucket: cfg.S3Bucket, Region: cfg.S3Region, VirtualHost: !cfg.S3ForcePathStyle})
 	if err != nil {
 		return err
 	}
-	if err := storage.EnsureBucket(ctx); err != nil {
-		log.Warn("object storage unavailable", "err", err)
+	check := storage.Ping
+	if cfg.S3CreateBucket {
+		check = storage.EnsureBucket
+	}
+	if err := check(ctx); err != nil {
+		log.Warn("object storage unavailable", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket, "err", err)
+	} else {
+		log.Info("object storage ready", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket, "public_endpoint", cfg.S3PublicEndpoint)
 	}
 
 	// Auth

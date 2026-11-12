@@ -5,7 +5,7 @@ help: ## Show targets
 
 TEST_DATABASE_URL ?= postgres://openaudio:openaudio@localhost:5432/openaudio_test?sslmode=disable
 
-up: ## Start PostgreSQL, MinIO, API and web (docker compose)
+up: ## Start PostgreSQL, Silo S3 (profile local-s3), API and web (docker compose)
 	docker compose up -d --build
 
 down: ## Stop the stack

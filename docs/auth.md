@@ -60,7 +60,7 @@ Errors come back as `{AUTH_CALLBACK_URL}?error=<code>` (`oauth_denied`, `oauth_s
 override with `BASE_SCHEME`), and CORS, cookies (`Secure` on https), OAuth redirect URIs, email links,
 `AUTH_CALLBACK_URL` and the mail sender (`no-reply@openaudio.example.com`) follow. Explicit `WEB_URL` /
 `PUBLIC_URL` still win. The Vite dev server also accepts that host name (`server.allowedHosts`; more hosts via
-`VITE_ALLOWED_HOSTS`). `S3_PUBLIC_ENDPOINT` is separate: set it to the address browsers use to reach MinIO.
+`VITE_ALLOWED_HOSTS`). `S3_PUBLIC_ENDPOINT` is separate: set it to the address browsers use to reach object storage ([storage.md](storage.md)).
 
 In development the Vite dev server proxies `/api` to the Go API, so the API, cookies and redirect URIs all live on
 `http://localhost:5173`.

@@ -48,6 +48,16 @@ func TestPresignUsesPublicEndpoint(t *testing.T) {
 	assert.True(t, strings.HasPrefix(u, "https://cdn.example.com/blobs-test/blobs/abc?"), u)
 }
 
+func TestVirtualHostAddressing(t *testing.T) {
+	// AWS S3 style: the bucket moves into the host name.
+	s, err := New(Config{Endpoint: "https://s3.eu-central-1.amazonaws.com", AccessKey: "ak", SecretKey: "sk", Bucket: "oa-blobs", Region: "eu-central-1", VirtualHost: true})
+	require.NoError(t, err)
+	u, err := s.PresignGet(context.Background(), "blobs/abc", time.Minute, "")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(u, "https://oa-blobs.s3.eu-central-1.amazonaws.com/blobs/abc?"), u)
+	assert.Contains(t, u, "eu-central-1%2Fs3%2Faws4_request")
+}
+
 func TestEnsureBucketAndPingAgainstFakeS3(t *testing.T) {
 	backend := s3mem.New()
 	srv := httptest.NewServer(gofakes3.New(backend).Server())

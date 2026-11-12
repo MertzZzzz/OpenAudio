@@ -7,7 +7,7 @@
 | `web/` | React 18 + TypeScript + Vite + Tailwind. Phase 1 prototype on a typed mock API. |
 | `api/` | Go backend: auth, migrations for all MVP tables, S3 adapter. Plus the OpenAPI contract. |
 | `docs/` | Design notes. |
-| `docker-compose.yml` | PostgreSQL 16, MinIO (+ bucket bootstrap), Go API, web (proxies `/api`). |
+| `docker-compose.yml` | PostgreSQL 16, PGSTY Silo S3 (+ bucket bootstrap; or external S3, see [storage.md](storage.md)), Go API, web (proxies `/api`). |
 
 ## Frontend
 

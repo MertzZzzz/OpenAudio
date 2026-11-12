@@ -1,5 +1,5 @@
 # Local development stack:
-#   docker compose up   → PostgreSQL, MinIO (+ bucket), Go API, web (Vite dev server)
+#   docker compose up   → PostgreSQL, Silo S3 (+ bucket, profile local-s3), Go API, web (Vite dev server)
 # Open http://localhost:5173. The web container proxies /api to the API, so auth cookies are first-party.
 name: openaudio
 
@@ -20,38 +20,44 @@ services:
       timeout: 3s
       retries: 10
 
-  minio:
-    image: minio/minio:latest # TODO: pin a RELEASE tag
+  # Local S3-compatible storage: PGSTY Silo (maintained MinIO fork). Started only with the
+  # "local-s3" profile (COMPOSE_PROFILES=local-s3, the .env.example default); leave the profile
+  # out and set S3_* in .env to use external S3 (AWS, R2, B2, Wasabi, your own MinIO/Silo...).
+  silo:
+    image: ${SILO_IMAGE:-pgsty/silo:RELEASE.2026-11-12T00-00-00Z}
+    profiles: [local-s3]
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-openaudio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
+      MINIO_ROOT_USER: ${SILO_ROOT_USER:-openaudio}
+      MINIO_ROOT_PASSWORD: ${SILO_ROOT_PASSWORD:-openaudio-secret}
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${SILO_API_PORT:-9000}:9000"
+      - "${SILO_CONSOLE_PORT:-9001}:9001"
     volumes:
-      - miniodata:/data
+      - silodata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
-  minio-init:
-    image: minio/mc:latest # TODO: pin together with minio
+  # Creates the bucket (private) with the client bundled in the Silo image.
+  silo-init:
+    image: ${SILO_IMAGE:-pgsty/silo:RELEASE.2026-11-12T00-00-00Z}
+    profiles: [local-s3]
     depends_on:
-      minio:
+      silo:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
-      mc mb --ignore-existing local/$${MINIO_BUCKET} &&
-      mc anonymous set none local/$${MINIO_BUCKET}
+      mcli alias set local http://silo:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mcli mb --ignore-existing local/$${BUCKET} &&
+      mcli anonymous set none local/$${BUCKET}
       "
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-openaudio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
-      MINIO_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
+      MINIO_ROOT_USER: ${SILO_ROOT_USER:-openaudio}
+      MINIO_ROOT_PASSWORD: ${SILO_ROOT_PASSWORD:-openaudio-secret}
+      BUCKET: ${S3_BUCKET:-openaudio-dev}
 
   api:
     build:
@@ -68,12 +74,17 @@ services:
       AUTH_REDIRECT_PATH: ${AUTH_REDIRECT_PATH:-/}
       AUTH_CALLBACK_URL: ${AUTH_CALLBACK_URL:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-openaudio}:${POSTGRES_PASSWORD:-openaudio}@postgres:5432/${POSTGRES_DB:-openaudio}?sslmode=disable
-      S3_ENDPOINT: http://minio:9000
-      # Presigned download URLs must point at an address the browser can reach.
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-openaudio}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-openaudio-secret}
-      S3_BUCKET: ${MINIO_BUCKET:-openaudio-dev}
+      # Object storage: local Silo unless S3_ENDPOINT points elsewhere (see .env.example).
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://silo:9000}
+      # Presigned download URLs must point at an address the browser can reach:
+      # external S3 -> the same endpoint (or a CDN); local Silo -> its published port.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-${S3_ENDPOINT:-http://localhost:9000}}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${SILO_ROOT_USER:-openaudio}}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-${SILO_ROOT_PASSWORD:-openaudio-secret}}
+      S3_BUCKET: ${S3_BUCKET:-openaudio-dev}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
@@ -96,8 +107,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio-init:
+      # Only when the local-s3 profile is active; with external S3 the API starts without it.
+      silo-init:
         condition: service_completed_successfully
+        required: false
 
   web:
     build:
@@ -120,4 +133,4 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  silodata:

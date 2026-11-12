@@ -10,9 +10,10 @@ instruments, effects, MIDI tools and VST3 / CLAP plug-ins.
 ## Quick start
 
 ```bash
-# Whole stack: PostgreSQL + MinIO + Go API + web
+# Whole stack: PostgreSQL + Silo (S3) + Go API + web
 cp .env.example .env   # set ADMIN_EMAIL/ADMIN_PASSWORD, optionally BASE_DOMAIN and Google/Discord, see docs/auth.md
-docker compose up      # http://localhost:5173 (API proxied at /api), MinIO console :9001
+docker compose up      # http://localhost:5173 (API proxied at /api), Silo console :9001
+                       # external S3 instead of Silo: COMPOSE_PROFILES= and S3_* in .env, see docs/storage.md
                        # sign in as ADMIN_EMAIL / ADMIN_PASSWORD (admin@openaudio.local / change-me-admin-password)
 
 # Demo catalog (8 packages), published as the default admin from .env:
@@ -86,7 +87,7 @@ Audio previews use a placeholder player (simulated playback, generated waveforms
 ## Repository layout
 
 ```text
-api/        Go backend (chi, pgx, golang-migrate, MinIO) + OpenAPI 3.1 contract
+api/        Go backend (chi, pgx, golang-migrate, S3) + OpenAPI 3.1 contract
 web/        React + TypeScript + Vite frontend
 docs/       Architecture notes
 docker-compose.yml
@@ -111,10 +112,10 @@ See [`docs/architecture.md`](docs/architecture.md) for how the mock API seam wor
 | Register and sign in | email + password, Google, Discord — [`docs/auth.md`](docs/auth.md) |
 | Publisher creates a package and uploads a release | publisher dashboard + upload wizard — [`docs/publishing.md`](docs/publishing.md) |
 | Manifest validated and stored in PostgreSQL JSONB | JSON Schema + domain rules; JSONB plus exact canonical bytes |
-| Artifacts in MinIO/S3, checked by SHA-256 | server re-hashes every upload before storing `blobs/{sha256}` |
+| Artifacts in S3 (local Silo or external), checked by SHA-256 | server re-hashes every upload before storing `blobs/{sha256}` |
 | Published releases are immutable | use case + database triggers on `releases` and `artifacts` |
 | Search by genre, instrument, BPM, key, mood, kind, license | `/search` + facets — [`docs/search.md`](docs/search.md) |
 | Listen to previews, add packages to a library | HTML5 audio previews; libraries — [`docs/library.md`](docs/library.md) |
 | Lockfile with exact versions and digests | `/libraries/{id}/lockfiles`, verified import |
 | Frontend on mock data first, then fully on the backend | `VITE_API_MODE=mock` (default for `npm run dev`) / `http` (docker compose) |
-| Local run: `docker compose up` | PostgreSQL, MinIO, API, web |
+| Local run: `docker compose up` | PostgreSQL, Silo (S3), API, web — [`docs/storage.md`](docs/storage.md) |

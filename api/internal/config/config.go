@@ -63,6 +63,12 @@ type Config struct {
 	S3SecretKey      string
 	S3Bucket         string
 	S3Region         string
+	// S3ForcePathStyle addresses buckets as https://host/bucket (MinIO/Silo, most self-hosted S3);
+	// false lets the SDK use virtual-host style (https://bucket.host, AWS S3).
+	S3ForcePathStyle bool
+	// S3CreateBucket creates the bucket on start when missing. Turn off for external S3 where the
+	// credentials may only read/write objects.
+	S3CreateBucket bool
 
 	JWTSecret    []byte
 	JWTIssuer    string
@@ -193,6 +199,16 @@ func Load(getenv func(string) string) (Config, error) {
 	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", c.WebURL), "/")
 	c.DownloadTTL = duration("DOWNLOAD_URL_TTL", 10*time.Minute)
 	c.S3PublicEndpoint = str("S3_PUBLIC_ENDPOINT", c.S3Endpoint)
+	c.S3ForcePathStyle = boolean("S3_FORCE_PATH_STYLE", true)
+	c.S3CreateBucket = boolean("S3_CREATE_BUCKET", true)
+	for key, raw := range map[string]string{"S3_ENDPOINT": c.S3Endpoint, "S3_PUBLIC_ENDPOINT": c.S3PublicEndpoint} {
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") {
+			errs = append(errs, fmt.Errorf("%s must be an http(s) URL without a path, e.g. https://s3.eu-central-1.amazonaws.com, got %q", key, raw))
+		}
+	}
+	if c.S3AccessKey == "" || c.S3SecretKey == "" || c.S3Bucket == "" {
+		errs = append(errs, errors.New("S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET must not be empty"))
+	}
 	bytesVar := func(key string, def int64) int64 {
 		v := str(key, "")
 		if v == "" {

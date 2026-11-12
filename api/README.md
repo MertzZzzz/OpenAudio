@@ -1,6 +1,6 @@
 # OpenAudio API
 
-Go backend: chi, pgx/v5, golang-migrate, MinIO SDK. Contract: [`openapi.yaml`](./openapi.yaml).
+Go backend: chi, pgx/v5, golang-migrate, minio-go (any S3-compatible storage). Contract: [`openapi.yaml`](./openapi.yaml).
 
 ```text
 cmd/api/main.go              config + DI only

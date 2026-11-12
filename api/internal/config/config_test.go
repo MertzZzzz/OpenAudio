@@ -106,3 +106,24 @@ func TestAuthRedirect(t *testing.T) {
 	_, err = Load(env(map[string]string{"AUTH_REDIRECT_PATH": "//evil.example"}))
 	assert.ErrorContains(t, err, "AUTH_REDIRECT_PATH")
 }
+
+func TestExternalS3(t *testing.T) {
+	c, err := Load(env(nil))
+	require.NoError(t, err)
+	assert.True(t, c.S3ForcePathStyle)
+	assert.True(t, c.S3CreateBucket)
+	assert.Equal(t, c.S3Endpoint, c.S3PublicEndpoint)
+
+	c, err = Load(env(map[string]string{
+		"S3_ENDPOINT": "https://s3.eu-central-1.amazonaws.com", "S3_REGION": "eu-central-1", "S3_BUCKET": "oa-blobs",
+		"S3_ACCESS_KEY": "AKIA", "S3_SECRET_KEY": "secret", "S3_FORCE_PATH_STYLE": "false", "S3_CREATE_BUCKET": "false",
+	}))
+	require.NoError(t, err)
+	assert.False(t, c.S3ForcePathStyle)
+	assert.False(t, c.S3CreateBucket)
+	assert.Equal(t, "https://s3.eu-central-1.amazonaws.com", c.S3PublicEndpoint)
+
+	_, err = Load(env(map[string]string{"S3_ENDPOINT": "s3.amazonaws.com", "S3_PUBLIC_ENDPOINT": "https://cdn.example.com/files"}))
+	assert.ErrorContains(t, err, "S3_ENDPOINT must be an http(s) URL")
+	assert.ErrorContains(t, err, "S3_PUBLIC_ENDPOINT must be an http(s) URL")
+}
